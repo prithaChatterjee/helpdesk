@@ -60,10 +60,10 @@ Before finishing a task, run `npm run lint`, `npm run typecheck`, `npm test`, an
 
 - Roles: `ADMIN`, `AGENT`. First Admin is seeded from `ADMIN_EMAIL`/`ADMIN_PASSWORD`; only Admins manage users.
 - Ticket statuses: `OPEN`, `RESOLVED`, `CLOSED`. Categories: `GENERAL`, `TECHNICAL`, `REFUND` (one per ticket).
-- Auth: database sessions in PostgreSQL (hashed token, httpOnly cookie), not JWT. Redis is for the job queue only.
+- Auth: Better Auth (email + password, sign-up disabled) with database sessions in PostgreSQL and a signed httpOnly cookie, not JWT. Protect routes with `requireAuth(auth)`. Redis is for the job queue only.
 - AI drafts replies; an Agent approves and sends (no auto-send in the first release).
 - Claude models: `claude-haiku-5-5` for classification, `claude-sonnet-5-5` for summaries/reply drafts.
 
 ## Environment
 
-Windows; Docker Desktop is not installed yet, so Postgres/Redis may be unavailable locally. Without Docker, a local Postgres can be started with `npx prisma dev -n helpdesk -d -P 51214` (from `packages/db`) and used via `DATABASE_URL=postgres://postgres:postgres@localhost:51214/template1?sslmode=disable`; stop it with `npx prisma dev stop helpdesk`.
+Windows; Docker Desktop is not installed, so Redis may be unavailable locally. PostgreSQL 17 runs natively as the auto-start Windows service `postgresql-17` (binaries and data in `C:\Users\pchat\postgres17`) on `localhost:5432`, with the same `helpdesk`/`helpdesk` user and database as `docker-compose.yml` (superuser `postgres`/`postgres`), with `timezone = 'UTC'` (Prisma's pg adapter sends timestamps without an offset, so a non-UTC server timezone shifts every stored time). Avoid `npx prisma dev` for this project: it is PGlite, serves only `template1` (breaks shadow databases and DataGrip).

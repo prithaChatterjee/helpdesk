@@ -11,33 +11,39 @@ datasource db {
   provider = "postgresql"
 }
 
+// Auth tables follow Better Auth's core schema (user, session, account, verification).
+// Field mappings that differ from Better Auth's names are configured in apps/api/src/auth.ts.
+
 enum UserRole {
   ADMIN
   AGENT
 }
 
 model User {
-  id           String    @id @default(uuid(7)) @db.Uuid
-  name         String
-  email        String    @unique
-  passwordHash String
-  role         UserRole  @default(AGENT)
-  isActive     Boolean   @default(true)
-  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
-  sessions     Session[]
+  id            String    @id @default(uuid(7)) @db.Uuid
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  role          UserRole  @default(AGENT)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+  sessions      Session[]
+  accounts      Account[]
 
   @@map("users")
 }
 
 model Session {
   id         String   @id @default(uuid(7)) @db.Uuid
-  /// SHA-256 of the session token; the raw token is only ever in the cookie
+  /// Better Auth session token (mapped from `token`); the cookie carries it HMAC-signed
   tokenHash  String   @unique
   userId     String   @db.Uuid
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt  DateTime @default(now()) @db.Timestamptz(3)
   expiresAt  DateTime @db.Timestamptz(3)
+  /// Better Auth `updatedAt`; bumped when the session is refreshed
   lastSeenAt DateTime @default(now()) @db.Timestamptz(3)
   ipAddress  String?
   userAgent  String?
@@ -45,4 +51,39 @@ model Session {
   @@index([userId])
   @@index([expiresAt])
   @@map("sessions")
+}
+
+/// One sign-in method for a user. Email/password users have providerId "credential"
+/// and the password hash in `password`.
+model Account {
+  id                    String    @id @default(uuid(7)) @db.Uuid
+  accountId             String
+  providerId            String
+  userId                String    @db.Uuid
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime? @db.Timestamptz(3)
+  refreshTokenExpiresAt DateTime? @db.Timestamptz(3)
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([userId])
+  @@map("accounts")
+}
+
+/// Short-lived tokens (email verification, password reset). Unused until those flows exist.
+model Verification {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  identifier String
+  value      String
+  expiresAt  DateTime @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([identifier])
+  @@map("verifications")
 }

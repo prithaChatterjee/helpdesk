@@ -9,6 +9,8 @@ const envSchema = z.object({
   REDIS_URL: z.url(),
   ADMIN_EMAIL: z.email(),
   ADMIN_PASSWORD: z.string().min(12),
+  BETTER_AUTH_SECRET: z.string().min(32),
+  BETTER_AUTH_URL: z.url(),
 });
 
 export type Env = z.infer<typeof envSchema>;

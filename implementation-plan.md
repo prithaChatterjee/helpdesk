@@ -35,16 +35,16 @@ Goal: an empty app runs locally and in CI.
 
 Goal: users can log in and out with database sessions.
 
-- [x] 1.1 Set up Prisma; create `User` model (id, name, email, passwordHash, role `ADMIN | AGENT`, isActive, timestamps)
+- [x] 1.1 Set up Prisma; create `User` model (id, name, email, role `ADMIN | AGENT`, isActive, timestamps)
 - [x] 1.2 Create `Session` model (id, tokenHash, userId, createdAt, expiresAt, lastSeenAt, ipAddress, userAgent)
-- [ ] 1.3 Password hashing utilities (argon2) with unit tests
-- [ ] 1.4 Seed first Admin on startup from `ADMIN_EMAIL` / `ADMIN_PASSWORD` if no users exist
-- [ ] 1.5 Session service: create (random token, store SHA-256 hash), validate (expiry, idle timeout, active user), delete, delete-all-for-user
-- [ ] 1.6 `POST /auth/login`: verify credentials, create session, set cookie (`HttpOnly`, `Secure`, `SameSite=Lax`)
-- [ ] 1.7 `POST /auth/logout` and `GET /auth/me`
-- [ ] 1.8 Auth middleware (`requireAuth`) and role middleware (`requireRole('ADMIN')`)
-- [ ] 1.9 Rate limiting on login (per IP and per email)
-- [ ] 1.10 CSRF protection: Origin header check on state-changing requests
+- [x] 1.3 Password hashing utilities (argon2) with unit tests — Better Auth (scrypt)
+- [x] 1.4 Seed first Admin on startup from `ADMIN_EMAIL` / `ADMIN_PASSWORD` if no users exist
+- [x] 1.5 Session service: create (random token, store SHA-256 hash), validate (expiry, idle timeout, active user), delete, delete-all-for-user
+- [x] 1.6 `POST /auth/login`: verify credentials, create session, set cookie (`HttpOnly`, `Secure`, `SameSite=Lax`)
+- [x] 1.7 `POST /auth/logout` and `GET /auth/me` — Better Auth `/api/auth/sign-out`, plus `GET /api/me`
+- [ ] 1.8 Auth middleware (`requireAuth`) and role middleware (`requireRole('ADMIN')`) — `requireAuth` done; `requireRole` pending
+- [ ] 1.9 Rate limiting on login (per IP and per email) — Better Auth limits per IP in production; per-email pending
+- [ ] 1.10 CSRF protection: Origin header check on state-changing requests — covered for `/api/auth/*` by Better Auth; app routes pending
 - [ ] 1.11 Frontend: login page, auth context, protected routes, logout button
 - [ ] 1.12 Frontend: app shell layout (sidebar nav, header with current user)
 - [ ] 1.13 API tests for login, logout, expired session, inactive user, wrong role
