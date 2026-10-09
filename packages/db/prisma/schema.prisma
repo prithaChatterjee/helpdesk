@@ -1,0 +1,48 @@
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  runtime                = "nodejs"
+  moduleFormat           = "esm"
+  generatedFileExtension = "ts"
+  importFileExtension    = ""
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  AGENT
+}
+
+model User {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         UserRole  @default(AGENT)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
+  sessions     Session[]
+
+  @@map("users")
+}
+
+model Session {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  /// SHA-256 of the session token; the raw token is only ever in the cookie
+  tokenHash  String   @unique
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt  DateTime @db.Timestamptz(3)
+  lastSeenAt DateTime @default(now()) @db.Timestamptz(3)
+  ipAddress  String?
+  userAgent  String?
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}

@@ -1,0 +1,43 @@
+{
+  "name": "helpdesk",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "postinstall": "npm run generate -w @helpdesk/db",
+    "dev": "concurrently -n api,worker,web -c blue,magenta,green \"npm:dev -w @helpdesk/api\" \"npm:dev -w @helpdesk/worker\" \"npm:dev -w @helpdesk/web\"",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "npm run generate -w @helpdesk/db",
+    "db:migrate": "npm run migrate:dev -w @helpdesk/db",
+    "db:deploy": "npm run migrate:deploy -w @helpdesk/db",
+    "db:studio": "npm run studio -w @helpdesk/db"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.19.1",
+    "concurrently": "^10.0.6",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.9",
+    "tsdown": "^0.23.0",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^5.0.3"
+  }
+}
