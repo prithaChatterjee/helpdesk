@@ -45,8 +45,8 @@ Goal: users can log in and out with database sessions.
 - [ ] 1.8 Auth middleware (`requireAuth`) and role middleware (`requireRole('ADMIN')`) — `requireAuth` done; `requireRole` pending
 - [ ] 1.9 Rate limiting on login (per IP and per email) — Better Auth limits per IP in production; per-email pending
 - [ ] 1.10 CSRF protection: Origin header check on state-changing requests — covered for `/api/auth/*` by Better Auth; app routes pending
-- [ ] 1.11 Frontend: login page, auth context, protected routes, logout button
-- [ ] 1.12 Frontend: app shell layout (sidebar nav, header with current user)
+- [x] 1.11 Frontend: login page, auth context, protected routes, logout button
+- [ ] 1.12 Frontend: app shell layout (sidebar nav, header with current user) — header done; sidebar pending
 - [ ] 1.13 API tests for login, logout, expired session, inactive user, wrong role
 
 **Done when:** the seeded Admin can log in, see the empty app shell, and log out; invalid or expired sessions are rejected.
