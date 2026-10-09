@@ -36,6 +36,7 @@ npm run format         # Prettier
 npm run build          # tsdown (api, worker), vite (web)
 npm run db:migrate     # prisma migrate dev (create + apply migration)
 npm run db:generate    # regenerate Prisma client (also runs on postinstall)
+npm run db:seed        # create/update the Admin (ADMIN_*) and optional extra user (SEED_USER_*)
 npm run db:studio      # Prisma Studio
 ```
 

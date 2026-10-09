@@ -22,7 +22,8 @@
     "db:generate": "npm run generate -w @helpdesk/db",
     "db:migrate": "npm run migrate:dev -w @helpdesk/db",
     "db:deploy": "npm run migrate:deploy -w @helpdesk/db",
-    "db:studio": "npm run studio -w @helpdesk/db"
+    "db:studio": "npm run studio -w @helpdesk/db",
+    "db:seed": "npm run db:seed -w @helpdesk/api"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

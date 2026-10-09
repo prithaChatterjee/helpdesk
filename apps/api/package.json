@@ -7,7 +7,9 @@
     "dev": "tsx watch --env-file-if-exists=../../.env src/index.ts",
     "build": "tsdown",
     "start": "node dist/index.mjs",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "db:seed": "tsx --env-file-if-exists=../../.env src/seed.ts",
+    "seed": "node dist/seed.mjs"
   },
   "dependencies": {
     "@helpdesk/db": "^0.0.0",
