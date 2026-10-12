@@ -2,6 +2,7 @@ import type { UserListResponse } from '@helpdesk/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -28,7 +29,7 @@ export function UsersPage() {
       </CardHeader>
       <CardContent>
         {isPending ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">Loading users…</p>
+          <UsersTableSkeleton />
         ) : error ? (
           <p role="alert" className="py-6 text-center text-sm text-destructive">
             Couldn't load users: {error.message}
@@ -63,5 +64,46 @@ export function UsersPage() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+const USER_COLUMNS = ['Name', 'Email', 'Role', 'Status', 'Created'] as const;
+
+/** Table-shaped placeholder while users load, so the layout doesn't jump. */
+function UsersTableSkeleton() {
+  return (
+    <div role="status" aria-busy="true">
+      <span className="sr-only">Loading users…</span>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            {USER_COLUMNS.map((column) => (
+              <TableHead key={column}>{column}</TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {Array.from({ length: 5 }, (_, row) => (
+            <TableRow key={row}>
+              <TableCell>
+                <Skeleton className="h-4 w-28" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-4 w-44" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-4 w-14" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-5 w-16 rounded-full" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-4 w-24" />
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
