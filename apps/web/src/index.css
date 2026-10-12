@@ -125,6 +125,33 @@
     @apply bg-background text-foreground;
   }
   html {
-    @apply font-sans;
+    @apply font-sans antialiased;
+    /* Native scrollbars and form controls follow the app theme */
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  /* Browser defaults that Tailwind's preflight leaves in place */
+  /* Browsers paint autofill with an !important background that can't be overridden, so delay the
+     change out of sight. !important beats utilities like the Input's `transition-colors`. */
+  input:-webkit-autofill {
+    -webkit-text-fill-color: var(--foreground);
+    caret-color: var(--foreground);
+    transition:
+      background-color 0s 600000s,
+      color 0s 600000s !important;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='search']::-webkit-search-cancel-button {
+    -webkit-appearance: none;
   }
 }
