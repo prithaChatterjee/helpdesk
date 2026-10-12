@@ -12,17 +12,19 @@ Planning docs (read before starting a phase):
 
 **Always use Context7 (`mcp__context7__resolve-library-id` → `mcp__context7__query-docs`) to fetch up-to-date docs before writing or changing code that uses a library, framework, CLI, or SDK** — even well-known ones. Versions in this repo are newer than most training data (e.g. Vitest 5, ESLint 10, TypeScript 6, Zod 4, Express 5, Vite 8, Tailwind 4, shadcn 4, tsdown, BullMQ 6, Prisma). Prefer Context7 over web search for library docs. Check the installed version in `package.json` and query that version when Context7 lists it.
 
+For Better Auth, prefer the `better-auth` MCP server (`search_docs` → `get_doc`, using the installed `better-auth` version) and the Better Auth skills in `.claude/skills/` (e.g. `better-auth-best-practices`, `better-auth-security-best-practices`).
+
 ## Structure
 
 npm workspaces monorepo, TypeScript everywhere, ESM (`"type": "module"`).
 
-| Path              | What                                                                                                                        |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `apps/web`        | React 19 + Vite + Tailwind 4 + shadcn/ui (radix-nova). `@/` alias → `src/`                                                  |
-| `apps/api`        | Express 5 REST API. All routes under `/api/*`. `createApp()` in `app.ts` is separate from `index.ts` (listen) for supertest |
-| `apps/worker`     | BullMQ consumers; processors in `src/processors/`                                                                           |
-| `packages/shared` | Zod schemas, enums (roles, ticket statuses, categories), queue names                                                        |
-| `packages/db`     | Prisma 7 schema, migrations, generated client (`src/generated/`, gitignored), `createPrismaClient()`. Node-only             |
+| Path              | What                                                                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web`        | React 19 + Vite + Tailwind 4 + shadcn/ui (radix-nova) + React Router 8. `@/` alias → `src/`; pages in `src/pages/`              |
+| `apps/api`        | Express 5 REST API. All routes under `/api/*`. `createApp(auth)` in `app.ts` is separate from `index.ts` (listen) for supertest |
+| `apps/worker`     | BullMQ consumers; processors in `src/processors/`                                                                               |
+| `packages/shared` | Zod schemas (incl. form schemas like `signInSchema`), enums (roles, ticket statuses, categories), queue names                   |
+| `packages/db`     | Prisma 7 schema, migrations, generated client (`src/generated/`, gitignored), `createPrismaClient()`. Node-only                 |
 
 ## Commands
 
@@ -40,7 +42,17 @@ npm run db:seed        # create/update the Admin (ADMIN_*) and optional extra us
 npm run db:studio      # Prisma Studio
 ```
 
-Before finishing a task, run `npm run lint`, `npm run typecheck`, `npm test`, and `npm run format:check`.
+Before finishing a task, run `npm run lint`, `npm run typecheck`, `npm test`, and `npm run format:check`. CI (`.github/workflows/ci.yml`) also runs `npm run build`.
+
+## Authentication (Better Auth)
+
+- `apps/api/src/auth.ts` `createAuth(config, prisma)` is the single Better Auth config; the seed script reuses it. Handler is mounted at `/api/auth/*splat` **before** `express.json()` (it parses its own bodies).
+- Prisma models `User`, `Session`, `Account`, `Verification` are Better Auth's tables. Session fields are renamed (`token` → `tokenHash`, `updatedAt` → `lastSeenAt`), and `generateId: false` lets Prisma's `uuid(7)` defaults create ids. Passwords live in `Account` (`providerId: 'credential'`), hashed with Better Auth's scrypt (`(await auth.$context).password.hash`).
+- User extra fields `role` and `isActive` are declared in `auth.ts` `user.additionalFields` **and** mirrored in `apps/web/src/lib/auth-client.ts` (`inferAdditionalFields`) — keep them in sync.
+- Deactivated users are blocked twice: a `session.create.before` hook refuses sign-in, and `requireAuth(auth)` returns 401. `requireAuth` puts `res.locals.user` / `res.locals.session` (typed via `Express.Locals`).
+- Sign-up is disabled, so users are created server-side via `upsertUser` (`apps/api/src/seed-admin.ts`), not the sign-up endpoint. The API seeds the first Admin on startup only when no users exist.
+- Web: use `authClient` from `@/lib/auth-client` (`useSession`, `signIn.email`, `signOut`). Wrap protected routes in `<RequireAuth>` (redirects to `/login` with `state.from`). Same-origin `/api` via the Vite proxy is what makes the cookie work — don't add CORS or an absolute API base URL.
+- Forms: react-hook-form + `zodResolver` with the schema from `@helpdesk/shared`, rendered with `Controller` and shadcn `Field`/`FieldError`; server errors go to `form.setError('root', …)`.
 
 ## Conventions
 
@@ -55,6 +67,7 @@ Before finishing a task, run `npm run lint`, `npm run typecheck`, `npm test`, an
 - Schema: models PascalCase, tables snake_case plural via `@@map`, ids `@default(uuid(7)) @db.Uuid`, timestamps `@db.Timestamptz(3)`. Change the schema, then run `npm run db:migrate -- --name <change>`; commit the migration folder.
 - api/worker builds (tsdown) bundle `@helpdesk/*` and keep npm packages external (`deps.neverBundle` regex) — don't bundle `pg`/Prisma runtime.
 - Add shadcn components with `npx shadcn@latest add <name>` from `apps/web`; don't hand-write them. Utilities come from the `cn` package (shadcn's).
+- Global styles go in `@layer base` in `apps/web/src/index.css`. Tailwind's preflight already resets most browser defaults; `index.css` also covers autofill, `color-scheme`, number spinners and the search clear button. Base-layer rules lose to utility classes on components (e.g. the shadcn `Input`'s `transition-colors`), so a global override of a property a component sets needs `!important`.
 - Prettier: single quotes, print width 100.
 
 ## Product decisions (see project-scope.md)
