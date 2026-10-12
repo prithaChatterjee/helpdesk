@@ -29,6 +29,9 @@ model User {
   isActive      Boolean   @default(true)
   createdAt     DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+  // Soft delete: set when an Admin deletes the user (who is also deactivated). Deleted users are
+  // hidden from the API but keep their row, so the email stays taken and history stays linked.
+  deletedAt     DateTime? @db.Timestamptz(3)
   sessions      Session[]
   accounts      Account[]
 

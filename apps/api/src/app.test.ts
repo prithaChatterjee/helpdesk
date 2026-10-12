@@ -116,6 +116,15 @@ describe('GET /api/users', () => {
       ],
     });
   });
+
+  it('leaves out soft-deleted users', async () => {
+    signInAs('ADMIN');
+    const findMany = vi.spyOn(prisma.user, 'findMany').mockResolvedValue([]);
+
+    await request(app).get('/api/users');
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { deletedAt: null } }));
+  });
 });
 
 describe('POST /api/users', () => {
@@ -449,6 +458,119 @@ describe('PATCH /api/users/:id', () => {
     const res = await request(app).patch(`/api/users/${agentId}`).send(changes);
 
     expect(res.status).toBe(409);
+  });
+
+  it('returns 404 for a soft-deleted user', async () => {
+    signInAs('ADMIN');
+    const { updateUser } = stubUpdate();
+    vi.spyOn(prisma.user, 'findUnique').mockResolvedValue({ deletedAt: new Date() } as never);
+
+    const res = await request(app).patch(`/api/users/${agentId}`).send(changes);
+
+    expect(res.status).toBe(404);
+    expect(updateUser).not.toHaveBeenCalled();
+  });
+});
+
+describe('DELETE /api/users/:id', () => {
+  const agentId = '0199a000-0000-7000-8000-000000000005';
+
+  /** Stubs the user lookup and the soft-delete writes. */
+  function stubDelete(existing: { role: UserRole; deletedAt: Date | null } | null) {
+    vi.spyOn(prisma.user, 'findUnique').mockResolvedValue(existing as never);
+    return {
+      updateUser: vi.spyOn(prisma.user, 'update').mockResolvedValue({} as never),
+      deleteSessions: vi
+        .spyOn(prisma.session, 'deleteMany')
+        .mockResolvedValue({ count: 1 } as never),
+      transaction: vi.spyOn(prisma, '$transaction').mockResolvedValue([] as never),
+    };
+  }
+
+  it('returns 401 without a session cookie', async () => {
+    const res = await request(app).delete(`/api/users/${agentId}`);
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 for an Agent', async () => {
+    signInAs('AGENT');
+    const { transaction } = stubDelete({ role: 'AGENT', deletedAt: null });
+
+    const res = await request(app).delete(`/api/users/${agentId}`);
+
+    expect(res.status).toBe(403);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('soft-deletes an Agent: sets deletedAt, deactivates, and signs them out', async () => {
+    signInAs('ADMIN');
+    const { updateUser, deleteSessions, transaction } = stubDelete({
+      role: 'AGENT',
+      deletedAt: null,
+    });
+
+    const res = await request(app).delete(`/api/users/${agentId}`);
+
+    expect(res.status).toBe(204);
+    expect(res.text).toBe('');
+    expect(updateUser).toHaveBeenCalledWith({
+      where: { id: agentId },
+      data: { deletedAt: expect.any(Date), isActive: false },
+    });
+    expect(deleteSessions).toHaveBeenCalledWith({ where: { userId: agentId } });
+    expect(transaction).toHaveBeenCalledOnce();
+  });
+
+  it('never removes the row', async () => {
+    signInAs('ADMIN');
+    stubDelete({ role: 'AGENT', deletedAt: null });
+    const hardDelete = vi.spyOn(prisma.user, 'delete');
+
+    await request(app).delete(`/api/users/${agentId}`);
+
+    expect(hardDelete).not.toHaveBeenCalled();
+  });
+
+  it('refuses to delete an Admin', async () => {
+    signInAs('ADMIN');
+    const { transaction } = stubDelete({ role: 'ADMIN', deletedAt: null });
+
+    const res = await request(app).delete(`/api/users/${agentId}`);
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: "Admins can't be deleted" });
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for a user that does not exist', async () => {
+    signInAs('ADMIN');
+    const { transaction } = stubDelete(null);
+
+    const res = await request(app).delete(`/api/users/${agentId}`);
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'User not found' });
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for a user that is already deleted', async () => {
+    signInAs('ADMIN');
+    const { transaction } = stubDelete({ role: 'AGENT', deletedAt: new Date() });
+
+    const res = await request(app).delete(`/api/users/${agentId}`);
+
+    expect(res.status).toBe(404);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for an id that is not a uuid', async () => {
+    signInAs('ADMIN');
+    const findUnique = vi.spyOn(prisma.user, 'findUnique');
+
+    const res = await request(app).delete('/api/users/not-a-uuid');
+
+    expect(res.status).toBe(404);
+    expect(findUnique).not.toHaveBeenCalled();
   });
 });
 

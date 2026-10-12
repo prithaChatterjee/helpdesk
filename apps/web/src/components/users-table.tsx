@@ -1,5 +1,6 @@
-import type { UserListItem } from '@helpdesk/shared';
+import { type UserListItem, UserRole } from '@helpdesk/shared';
 import { DataTable, type DataTableColumn, DataTableSkeleton } from '@/components/data-table';
+import { DeleteUserDialog } from '@/components/delete-user-dialog';
 import { Badge } from '@/components/ui/badge';
 import { UserFormDialog } from '@/components/user-form-dialog';
 
@@ -35,9 +36,19 @@ const userColumns: readonly DataTableColumn<UserListItem>[] = [
   {
     header: 'Actions',
     hideHeader: true,
-    cell: (user) => <UserFormDialog user={user} />,
-    className: 'w-px text-right',
-    skeletonClassName: 'ml-auto size-7',
+    cell: (user) => (
+      <div className="flex justify-end gap-1">
+        <UserFormDialog user={user} />
+        {user.role === UserRole.ADMIN ? (
+          // Admins can't be deleted; the spacer keeps the edit buttons lined up
+          <span aria-hidden className="size-7" />
+        ) : (
+          <DeleteUserDialog user={user} />
+        )}
+      </div>
+    ),
+    className: 'w-px',
+    skeletonClassName: 'ml-auto h-7 w-15',
   },
 ];
 

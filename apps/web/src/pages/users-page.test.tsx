@@ -143,4 +143,16 @@ describe('UsersPage', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Edit user' });
     expect(within(dialog).getByLabelText('Email')).toHaveValue('alan@example.com');
   });
+
+  it('offers delete on Agent rows but not on Admin rows', async () => {
+    mockFetch(Response.json({ users }));
+    renderPage();
+
+    const adaRow = (await screen.findByRole('cell', { name: 'Ada Admin' })).closest('tr');
+    const alanRow = screen.getByRole('cell', { name: 'Alan Agent' }).closest('tr');
+
+    expect(within(alanRow!).getByRole('button', { name: 'Delete Alan Agent' })).toBeInTheDocument();
+    expect(within(adaRow!).queryByRole('button', { name: /Delete/ })).not.toBeInTheDocument();
+    expect(within(adaRow!).getByRole('button', { name: 'Edit Ada Admin' })).toBeInTheDocument();
+  });
 });

@@ -41,9 +41,9 @@ export function createAuth(config: AuthConfig, prisma: PrismaClient) {
           before: async (session) => {
             const user = await prisma.user.findUnique({
               where: { id: session.userId },
-              select: { isActive: true },
+              select: { isActive: true, deletedAt: true },
             });
-            if (!user?.isActive) {
+            if (!user?.isActive || user.deletedAt) {
               throw new APIError('FORBIDDEN', { message: 'Account is deactivated' });
             }
           },

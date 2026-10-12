@@ -28,7 +28,11 @@ export function usersRouter(auth: Auth, prisma: PrismaClient) {
   const router = Router();
 
   router.get('/', async (_req, res) => {
-    const users = await prisma.user.findMany({ select: userSelect, orderBy: { createdAt: 'asc' } });
+    const users = await prisma.user.findMany({
+      where: { deletedAt: null },
+      select: userSelect,
+      orderBy: { createdAt: 'asc' },
+    });
     const body: UserListResponse = {
       users: users.map((user) => ({ ...user, createdAt: user.createdAt.toISOString() })),
     };
@@ -97,7 +101,11 @@ export function usersRouter(auth: Auth, prisma: PrismaClient) {
     }
     const { name, email, password } = parsed.data;
 
-    if (!(await prisma.user.findUnique({ where: { id }, select: { id: true } }))) {
+    const existing = await prisma.user.findUnique({
+      where: { id },
+      select: { deletedAt: true },
+    });
+    if (!existing || existing.deletedAt) {
       res.status(404).json({ error: USER_NOT_FOUND });
       return;
     }
@@ -153,6 +161,34 @@ export function usersRouter(auth: Auth, prisma: PrismaClient) {
       user: { ...user, createdAt: user.createdAt.toISOString() },
     };
     res.json(body);
+  });
+
+  // Soft delete: the row stays (deactivated, `deletedAt` set) and the user is signed out everywhere.
+  // Admins can't be deleted, which also keeps an Admin from deleting themselves.
+  router.delete('/:id', async (req, res) => {
+    const id = req.params.id;
+    if (!z.uuid().safeParse(id).success) {
+      res.status(404).json({ error: USER_NOT_FOUND });
+      return;
+    }
+    const existing = await prisma.user.findUnique({
+      where: { id },
+      select: { role: true, deletedAt: true },
+    });
+    if (!existing || existing.deletedAt) {
+      res.status(404).json({ error: USER_NOT_FOUND });
+      return;
+    }
+    if (existing.role === UserRole.ADMIN) {
+      res.status(403).json({ error: "Admins can't be deleted" });
+      return;
+    }
+
+    await prisma.$transaction([
+      prisma.user.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } }),
+      prisma.session.deleteMany({ where: { userId: id } }),
+    ]);
+    res.status(204).end();
   });
 
   return router;

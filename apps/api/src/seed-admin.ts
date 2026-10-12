@@ -26,7 +26,7 @@ export async function upsertUser(
     const user = existing
       ? await tx.user.update({
           where: { id: existing.id },
-          data: { role: seed.role, isActive: true },
+          data: { role: seed.role, isActive: true, deletedAt: null },
         })
       : await tx.user.create({ data: { name, email, emailVerified: true, role: seed.role } });
 

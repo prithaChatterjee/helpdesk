@@ -1,5 +1,5 @@
-import { type BrowserContext, expect, type Page } from '@playwright/test';
-import type { TestUser } from '../test-env';
+import { type Browser, type BrowserContext, expect, type Page } from '@playwright/test';
+import { E2E_WEB_URL } from '../test-env';
 
 // Better Auth's session cookie name (no custom prefix, not __Secure- over http)
 export const SESSION_COOKIE = 'better-auth.session_token';
@@ -12,7 +12,7 @@ export async function submitSignIn(page: Page, user: { email: string; password: 
 }
 
 /** Signs in through the login page and waits until the app shows the user as signed in. */
-export async function signIn(page: Page, user: TestUser) {
+export async function signIn(page: Page, user: { email: string; password: string }) {
   await page.goto('/login');
   await submitSignIn(page, user);
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
@@ -26,7 +26,7 @@ export async function signOut(page: Page) {
 }
 
 /** The heading on the home page once a user is signed in. */
-export function welcomeHeading(page: Page, user: TestUser) {
+export function welcomeHeading(page: Page, user: { name: string }) {
   return page.getByText(`Welcome, ${user.name}`);
 }
 
@@ -44,4 +44,92 @@ export async function getSessionToken(context: BrowserContext) {
   const token = decodeURIComponent(cookie.value).split('.')[0];
   if (!token) throw new Error(`Unexpected session cookie value: ${cookie.value}`);
   return token;
+}
+
+/** Credentials for a user a test creates; unique per call so tests never share them. */
+export interface NewUser {
+  name: string;
+  email: string;
+  password: string;
+}
+
+/** A user as returned by `/api/users`. */
+export interface ListedUser {
+  id: string;
+  name: string;
+  email: string;
+  role: 'ADMIN' | 'AGENT';
+  isActive: boolean;
+}
+
+function uniqueSuffix() {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Fresh Agent credentials. The password passes the shared rules (length, cases, special). */
+export function uniqueUser(label = 'agent'): NewUser {
+  const suffix = uniqueSuffix();
+  return {
+    name: `E2E ${label} ${suffix}`,
+    email: `${label}-${suffix}@e2e.test`,
+    password: `Pass-${suffix}-word`,
+  };
+}
+
+/** Creates an Agent through `POST /api/users`; `page` must be signed in as an Admin. */
+export async function createUserViaApi(page: Page, user: NewUser): Promise<ListedUser> {
+  const response = await page.request.post('/api/users', { data: user });
+  expect(response.status(), await response.text()).toBe(201);
+  return ((await response.json()) as { user: ListedUser }).user;
+}
+
+/** The Users table row whose Email cell is exactly `email`. */
+export function userRow(page: Page, email: string) {
+  return page
+    .getByRole('row')
+    .filter({ has: page.getByRole('cell', { name: email, exact: true }) });
+}
+
+/** A new browser context (separate cookies) with a page on the app, not signed in. */
+export async function newAnonymousPage(browser: Browser) {
+  const context = await browser.newContext({ baseURL: E2E_WEB_URL });
+  return context.newPage();
+}
+
+/** A new browser context signed in as `user`, e.g. to watch an Agent while an Admin acts. */
+export async function newSignedInPage(browser: Browser, user: { email: string; password: string }) {
+  const page = await newAnonymousPage(browser);
+  await signIn(page, user);
+  return page;
+}
+
+/** Tries to sign in with these credentials in a fresh context and checks that it's refused. */
+export async function expectSignInRefused(
+  browser: Browser,
+  credentials: { email: string; password: string },
+) {
+  const page = await newAnonymousPage(browser);
+  try {
+    await page.goto('/login');
+    await submitSignIn(page, credentials);
+    await expect(page.getByRole('alert')).toBeVisible();
+    await expect(page).toHaveURL('/login');
+    expect(await getSessionCookie(page.context())).toBeUndefined();
+  } finally {
+    await page.context().close();
+  }
+}
+
+/** Signs in with these credentials in a fresh context and checks the user lands home. */
+export async function expectSignInWorks(browser: Browser, user: NewUser) {
+  const page = await newAnonymousPage(browser);
+  try {
+    await page.goto('/login');
+    await submitSignIn(page, user);
+    await expect(page).toHaveURL('/');
+    await expect(welcomeHeading(page, user)).toBeVisible();
+    await expect(page.getByText(`Signed in as ${user.email} (Agent)`)).toBeVisible();
+  } finally {
+    await page.context().close();
+  }
 }

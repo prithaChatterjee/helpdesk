@@ -67,6 +67,7 @@ Goal: Admin can manage Agents.
 - [x] 2.8 Frontend: create / edit Agent dialog (Users page "Create user" button, pencil button per row)
 - [ ] 2.9 Frontend: deactivate / activate and reset password actions with confirmation
 - [x] 2.10 Hide Users nav item for Agents; API tests that Agents get 403
+- [x] 2.11 `DELETE /users/:id` soft delete (sets `deletedAt`, deactivates, deletes sessions; Admins can't be deleted) with a confirmation dialog on Agent rows. Deleted users stay out of the list and keep their email taken. 2.4's `/activate` must refuse deleted users
 
 **Done when:** Admin creates an Agent, the Agent logs in, Admin deactivates them, and the Agent is logged out immediately.
 

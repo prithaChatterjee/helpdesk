@@ -19,6 +19,8 @@ async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new ApiError(res.status, body?.error ?? `Request failed (${res.status})`);
   }
+  // 204 No Content (e.g. DELETE) has no body to parse
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
@@ -43,4 +45,9 @@ export function apiPatch<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+/** DELETEs a resource. Throws `ApiError` on failure. */
+export function apiDelete(path: string): Promise<void> {
+  return apiRequest<void>(path, { method: 'DELETE' });
 }
