@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@helpdesk/db';
 import { toNodeHandler } from 'better-auth/node';
-import express from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import type { Auth } from './auth';
 import { requireAuth } from './middleware/require-auth';
 import { requireRole } from './middleware/require-role';
@@ -24,5 +24,28 @@ export function createApp(auth: Auth, prisma: PrismaClient) {
 
   app.use('/api/users', requireAuth(auth), requireRole('ADMIN'), usersRouter(prisma));
 
+  // Replaces Express's default handler, which sends stack traces unless NODE_ENV is production.
+  // Client errors from body parsing (400 bad JSON, 413 too large) keep their status and message.
+  // Express recognises error handlers by their four parameters, so `_next` must stay.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    const status = getClientErrorStatus(err);
+    if (status) {
+      res.status(status).json({ error: (err as Error).message });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  });
+
   return app;
+}
+
+/** The 4xx status of an error that is safe to show to the client, e.g. from express.json(). */
+function getClientErrorStatus(err: unknown): number | undefined {
+  if (typeof err !== 'object' || err === null || !('expose' in err) || err.expose !== true) {
+    return undefined;
+  }
+  const status = 'status' in err ? err.status : undefined;
+  return typeof status === 'number' && status >= 400 && status < 500 ? status : undefined;
 }

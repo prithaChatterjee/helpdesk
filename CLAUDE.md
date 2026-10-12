@@ -43,18 +43,19 @@ npm run db:seed        # create/update the Admin (ADMIN_*) and optional extra us
 npm run db:studio      # Prisma Studio
 ```
 
-Every seed run also re-saves the Admin (role, active, password reset to `ADMIN_PASSWORD`).
+Every seed run also re-saves the Admin (role, active, password reset to `ADMIN_PASSWORD`), so it refuses to run with `NODE_ENV=production` unless `SEED_ALLOW_PRODUCTION=true`. In production the API env also rejects the `.env.example` secret/Admin password and non-https `BETTER_AUTH_URL`/`WEB_ORIGIN`.
 
 Before finishing a task, run `npm run lint`, `npm run typecheck`, `npm test`, and `npm run format:check`. CI (`.github/workflows/ci.yml`) also runs `npm run build`.
 
-Project subagent: `api-reviewer` (`.claude/agents/api-reviewer.md`) reviews API route changes for auth, role checks, validation, data exposure and tests. Read-only; use it before committing API work when asked.
+Project subagent: `security-reviewer` (`.claude/agents/security-reviewer.md`) audits the whole codebase (or the branch) for security vulnerabilities: auth/sessions, authorization/IDOR, injection, data exposure, secrets, XSS, prompt injection in AI features, dependencies. Read-only.
 
 ## Authentication (Better Auth)
 
 - `apps/api/src/auth.ts` `createAuth(config, prisma)` is the single Better Auth config; the seed script reuses it. Handler is mounted at `/api/auth/*splat` **before** `express.json()` (it parses its own bodies).
 - Prisma models `User`, `Session`, `Account`, `Verification` are Better Auth's tables. Session fields are renamed (`token` → `tokenHash`, `updatedAt` → `lastSeenAt`), and `generateId: false` lets Prisma's `uuid(7)` defaults create ids. Passwords live in `Account` (`providerId: 'credential'`), hashed with Better Auth's scrypt (`(await auth.$context).password.hash`).
 - User extra fields `role` and `isActive` are declared in `auth.ts` `user.additionalFields` **and** mirrored in `apps/web/src/lib/auth-client.ts` (`inferAdditionalFields`) — keep them in sync.
-- Deactivated users are blocked twice: a `session.create.before` hook refuses sign-in, and `requireAuth(auth)` returns 401. `requireAuth` puts `res.locals.user` / `res.locals.session` (typed via `Express.Locals`).
+- Deactivated users are blocked twice: a `session.create.before` hook refuses sign-in, and `requireAuth(auth)` returns 401. `requireAuth` puts `res.locals.user` / `res.locals.session` (typed via `Express.Locals`). Gap: Better Auth's own `/api/auth/*` endpoints (`change-password`, `update-user`, …) don't go through `requireAuth`, and nothing deletes sessions yet — deactivation and password reset must delete the user's sessions (plan 2.4/2.5).
+- Rate limiting is set explicitly (`rateLimit: { enabled: true }`): Better Auth defaults it on only when `NODE_ENV=production`. It keys on `X-Forwarded-For`; with no header everyone shares one bucket, so in dev repeated failed sign-ins (~3 per 10 s) return 429. Trusted-proxy config and a per-email limit are still pending (plan 1.9).
 - Sign-up is disabled, so users are created server-side via `upsertUser` (`apps/api/src/seed-admin.ts`), not the sign-up endpoint. The API seeds the first Admin on startup only when no users exist.
 - Web: use `authClient` from `@/lib/auth-client` (`useSession`, `signIn.email`, `signOut`). Wrap protected routes in `<RequireAuth>` (redirects to `/login` with `state.from`). Same-origin `/api` via the Vite proxy is what makes the cookie work — don't add CORS or an absolute API base URL.
 - Roles: protect API routes with `requireAuth(auth), requireRole('ADMIN')` (403 for other roles), e.g. `app.use('/api/users', …, usersRouter(prisma))`. In the web app, nest Admin-only routes under the `<RequireRole role="ADMIN" />` layout route (non-Admins go to `/`) and hide their nav links in `app-header.tsx`. The web check is only UX; the API check is the real guard.
@@ -65,10 +66,11 @@ Project subagent: `api-reviewer` (`.claude/agents/api-reviewer.md`) reviews API 
 - `@helpdesk/shared` exports **TypeScript source** (no build step). Vite/tsx compile it; tsdown bundles it into api/worker (`deps.alwaysBundle`).
 - The shared root export (`@helpdesk/shared`) must stay **browser-safe**. Node-only code goes in a subpath export (e.g. `@helpdesk/shared/env`) added to `packages/shared/package.json` `exports`.
 - Domain enums (`USER_ROLES`, `TICKET_STATUSES`, `TICKET_CATEGORIES`) and queue names live only in `packages/shared` — never redefine them in apps.
-- Env vars are validated with Zod via `parseEnv` in each app's `src/env.ts`; add new variables there and to `.env.example`. Dev scripts load the root `.env` with `--env-file-if-exists`.
+- Env vars are validated with Zod via `parseEnv` in each app's `src/env.ts`; add new variables there and to `.env.example`. Dev scripts load the root `.env` with `--env-file-if-exists`. Production-only rules go in a `.superRefine` on the schema (see `apps/api/src/env.ts`). `src/env.ts` and `src/db.ts` parse `process.env` on import and tests have no `.env`, so tests must not import them — pass config to factories (`createAuth`, `createApp`) instead.
+- Don't let a security control depend on `NODE_ENV` defaults: Better Auth (rate limiting, default-secret check) and Express (stack traces in error responses) silently weaken when it isn't `production`. Set them explicitly.
 - TypeScript: strict, `noUncheckedIndexedAccess`, `verbatimModuleSyntax` (use `import type`), `erasableSyntaxOnly` (no TS `enum` — use `as const` arrays + `z.enum`; no constructor parameter properties). Extensionless relative imports (bundler resolution).
 - Tests sit next to source as `*.test.ts`. API tests need no database or real session: `vi.spyOn(auth.api, 'getSession')` to sign in as a role and `vi.spyOn(prisma.user, 'findMany')` (etc.) to stub queries, with `vi.restoreAllMocks()` in `afterEach` (see `apps/api/src/app.test.ts`).
-- API routes are `Router` factories taking their dependencies (`usersRouter(prisma)`), mounted in `createApp`. Response body types come from `@helpdesk/shared`; send dates as ISO strings.
+- API routes are `Router` factories taking their dependencies (`usersRouter(prisma)`), mounted in `createApp`. Response body types come from `@helpdesk/shared`; send dates as ISO strings. Errors: just throw (Express 5 forwards async rejections); the final error handler in `createApp` logs and returns `{ error: 'Internal Server Error' }` (500), keeping exposed 4xx errors like bad JSON. Mount new routes before it.
 - Web data fetching: TanStack Query (`useQuery`, provider in `main.tsx`) with `apiGet<T>(path)` from `@/lib/api` (relative `/api` path, throws `ApiError` with `status`). Handle pending and error states on every page.
 - **Prisma 7** (`prisma-client` generator + `@prisma/adapter-pg`). Keep `prisma`, `@prisma/client` and `@prisma/adapter-pg` on the same version. npm's `latest` tag for the `prisma` CLI points to an 8.x release candidate, so always install with an explicit version (e.g. `prisma@7.10.0`).
 - Import the client and model types from `@helpdesk/db`, never from `./generated` paths or `@prisma/client`. Each app creates its own client in `src/db.ts` from its validated env.

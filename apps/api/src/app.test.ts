@@ -116,3 +116,27 @@ describe('GET /api/users', () => {
     });
   });
 });
+
+describe('error handler', () => {
+  it('returns a generic 500 without internal details', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    signInAs('ADMIN');
+    vi.spyOn(prisma.user, 'findMany').mockRejectedValue(new Error('connect ECONNREFUSED db:5432'));
+
+    const res = await request(app).get('/api/users');
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'Internal Server Error' });
+    expect(res.text).not.toContain('ECONNREFUSED');
+  });
+
+  it('keeps the 400 status for malformed JSON', async () => {
+    const res = await request(app)
+      .post('/api/health')
+      .set('Content-Type', 'application/json')
+      .send('{"oops"');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: expect.stringContaining('JSON') });
+  });
+});

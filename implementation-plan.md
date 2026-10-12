@@ -39,11 +39,11 @@ Goal: users can log in and out with database sessions.
 - [x] 1.2 Create `Session` model (id, tokenHash, userId, createdAt, expiresAt, lastSeenAt, ipAddress, userAgent)
 - [x] 1.3 Password hashing utilities (argon2) with unit tests — Better Auth (scrypt)
 - [x] 1.4 Seed first Admin on startup from `ADMIN_EMAIL` / `ADMIN_PASSWORD` if no users exist
-- [x] 1.5 Session service: create (random token, store SHA-256 hash), validate (expiry, idle timeout, active user), delete, delete-all-for-user
+- [x] 1.5 Sessions via Better Auth: random token stored as-is in `token_hash` (the cookie is HMAC-signed with `BETTER_AUTH_SECRET`; not a SHA-256 hash, see the trade-off in `tech-stack.md`), validated for expiry and active user (`requireAuth`), revocable with Better Auth's session APIs
 - [x] 1.6 `POST /auth/login`: verify credentials, create session, set cookie (`HttpOnly`, `Secure`, `SameSite=Lax`)
 - [x] 1.7 `POST /auth/logout` and `GET /auth/me` — Better Auth `/api/auth/sign-out`, plus `GET /api/me`
 - [x] 1.8 Auth middleware (`requireAuth`) and role middleware (`requireRole('ADMIN')`)
-- [ ] 1.9 Rate limiting on login (per IP and per email) — Better Auth limits per IP in production; per-email pending
+- [ ] 1.9 Rate limiting on login (per IP and per email) — Better Auth per-IP limit always enabled; pending: `advanced.ipAddress` trusted-proxy config (else `X-Forwarded-For` is spoofable) and a per-email limit
 - [ ] 1.10 CSRF protection: Origin header check on state-changing requests — covered for `/api/auth/*` by Better Auth; app routes pending
 - [x] 1.11 Frontend: login page, auth context, protected routes, logout button
 - [ ] 1.12 Frontend: app shell layout (sidebar nav, header with current user) — header done; sidebar pending
@@ -60,7 +60,7 @@ Goal: Admin can manage Agents.
 - [x] 2.1 `GET /users` (list, Admin only)
 - [ ] 2.2 `POST /users` create Agent (name, email, initial password), with Zod validation and unique email check
 - [ ] 2.3 `PATCH /users/:id` edit name/email
-- [ ] 2.4 `POST /users/:id/deactivate` and `/activate`; deactivation deletes all of the user's sessions
+- [ ] 2.4 `POST /users/:id/deactivate` and `/activate`; deactivation deletes all of the user's sessions, and a Better Auth `hooks.before` rejects inactive users on `/api/auth/*` (except sign-out)
 - [ ] 2.5 `POST /users/:id/reset-password`; deletes all of the user's sessions
 - [ ] 2.6 Guard: Admin cannot deactivate themselves (prevents losing the last Admin)
 - [x] 2.7 Frontend: Users page with table (name, email, role, status)

@@ -18,6 +18,8 @@ export function createAuth(config: AuthConfig, prisma: PrismaClient) {
     trustedOrigins: [config.webOrigin],
     // Users are created by Admins (and the seeded first Admin), never by public sign-up
     emailAndPassword: { enabled: true, disableSignUp: true },
+    // Better Auth only rate-limits when NODE_ENV is production; never depend on that being set
+    rateLimit: { enabled: true },
     user: {
       additionalFields: {
         role: { type: [...USER_ROLES], required: false, defaultValue: 'AGENT', input: false },

@@ -1,5 +1,7 @@
 // Seeds the database with the Admin from ADMIN_EMAIL / ADMIN_PASSWORD and, when SEED_USER_EMAIL is
 // set, one more user (ADMIN or AGENT) from SEED_USER_*. Run with `npm run db:seed`.
+// Refuses to run in production unless SEED_ALLOW_PRODUCTION=true, because it resets the Admin's
+// password to ADMIN_PASSWORD.
 import { type UserRole, userRoleSchema } from '@helpdesk/shared';
 import { parseEnv } from '@helpdesk/shared/env';
 import { z } from 'zod';
@@ -14,12 +16,22 @@ const seedEnv = parseEnv(
       SEED_USER_EMAIL: z.email().optional(),
       SEED_USER_PASSWORD: z.string().min(8).optional(),
       SEED_USER_ROLE: userRoleSchema.default('AGENT'),
+      SEED_ALLOW_PRODUCTION: z.stringbool().default(false),
     })
     .refine((e) => !e.SEED_USER_EMAIL || e.SEED_USER_PASSWORD, {
       message: 'SEED_USER_PASSWORD is required when SEED_USER_EMAIL is set',
       path: ['SEED_USER_PASSWORD'],
     }),
 );
+
+if (env.NODE_ENV === 'production' && !seedEnv.SEED_ALLOW_PRODUCTION) {
+  console.error(
+    'Refusing to seed in production: it resets the Admin password to ADMIN_PASSWORD. ' +
+      'Set SEED_ALLOW_PRODUCTION=true to run it anyway.',
+  );
+  await prisma.$disconnect();
+  process.exit(1);
+}
 
 const users: { email: string; password: string; role: UserRole }[] = [
   { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD, role: 'ADMIN' },
