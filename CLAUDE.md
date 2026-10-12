@@ -25,6 +25,7 @@ npm workspaces monorepo, TypeScript everywhere, ESM (`"type": "module"`).
 | `apps/worker`     | BullMQ consumers; processors in `src/processors/`                                                                                                                       |
 | `packages/shared` | Zod schemas (form schemas like `signInSchema`, API response types like `UserListResponse`), enums (roles, ticket statuses, categories), queue names                     |
 | `packages/db`     | Prisma 7 schema, migrations, generated client (`src/generated/`, gitignored), `createPrismaClient()`. Node-only                                                         |
+| `e2e`             | Playwright end-to-end tests (`tests/`). Own database `helpdesk_test` and ports (API :3001, web :5174), settings and seeded `TEST_USERS` in `test-env.ts`                |
 
 ## Commands
 
@@ -32,6 +33,8 @@ npm workspaces monorepo, TypeScript everywhere, ESM (`"type": "module"`).
 docker compose up -d   # PostgreSQL :5432, Redis :6379
 npm run dev            # api :3000, worker, web :5173 (Vite proxies /api → :3000)
 npm test               # Vitest (projects: packages/*, apps/api, apps/worker)
+npm run test:e2e       # Playwright: resets + seeds helpdesk_test, starts api :3001 and web :5174, runs e2e/tests
+                       # first time: npx playwright install chromium (from e2e/)
 npm run lint           # ESLint flat config at root
 npm run typecheck
 npm run format         # Prettier
@@ -45,9 +48,18 @@ npm run db:studio      # Prisma Studio
 
 Every seed run also re-saves the Admin (role, active, password reset to `ADMIN_PASSWORD`), so it refuses to run with `NODE_ENV=production` unless `SEED_ALLOW_PRODUCTION=true`. In production the API env also rejects the `.env.example` secret/Admin password and non-https `BETTER_AUTH_URL`/`WEB_ORIGIN`.
 
-Before finishing a task, run `npm run lint`, `npm run typecheck`, `npm test`, and `npm run format:check`. CI (`.github/workflows/ci.yml`) also runs `npm run build`.
+Before finishing a task, run `npm run lint`, `npm run typecheck`, `npm test`, and `npm run format:check`. CI (`.github/workflows/ci.yml`) also runs `npm run build`. When a change touches UI or auth flows and `e2e/tests` has specs, also run `npm run test:e2e` (needs local PostgreSQL; not in CI yet).
 
-Project subagent: `security-reviewer` (`.claude/agents/security-reviewer.md`) audits the whole codebase (or the branch) for security vulnerabilities: auth/sessions, authorization/IDOR, injection, data exposure, secrets, XSS, prompt injection in AI features, dependencies. Read-only.
+Project subagents: `security-reviewer` (`.claude/agents/security-reviewer.md`) audits the whole codebase (or the branch) for security vulnerabilities: auth/sessions, authorization/IDOR, injection, data exposure, secrets, XSS, prompt injection in AI features, dependencies. Read-only. `e2e-tester` writes Playwright tests (see "End-to-end tests" below).
+
+## End-to-end tests
+
+Hand e2e work to the `e2e-tester` subagent (`.claude/agents/e2e-tester.md`) instead of writing specs inline. This covers adding specs for a new page or flow, fixing failing or flaky specs, and checking a flow in a real browser.
+
+- In the prompt, name the flows and roles to cover (Admin, Agent), the pages and API routes involved, and whether it may change app code. By default it only edits `e2e/`.
+- When it reports app bugs, relay them to the user and fix them here, then have it re-run the affected specs.
+- After a feature that changes UI or auth flows, suggest adding or updating e2e specs through the agent.
+- The e2e setup (database reset, `TEST_USERS`, ports, env isolation, test-writing rules) is documented only in the agent file. Read it before changing anything in `e2e/` yourself.
 
 ## Authentication (Better Auth)
 
@@ -55,7 +67,7 @@ Project subagent: `security-reviewer` (`.claude/agents/security-reviewer.md`) au
 - Prisma models `User`, `Session`, `Account`, `Verification` are Better Auth's tables. Session fields are renamed (`token` → `tokenHash`, `updatedAt` → `lastSeenAt`), and `generateId: false` lets Prisma's `uuid(7)` defaults create ids. Passwords live in `Account` (`providerId: 'credential'`), hashed with Better Auth's scrypt (`(await auth.$context).password.hash`).
 - User extra fields `role` and `isActive` are declared in `auth.ts` `user.additionalFields` **and** mirrored in `apps/web/src/lib/auth-client.ts` (`inferAdditionalFields`) — keep them in sync.
 - Deactivated users are blocked twice: a `session.create.before` hook refuses sign-in, and `requireAuth(auth)` returns 401. `requireAuth` puts `res.locals.user` / `res.locals.session` (typed via `Express.Locals`). Gap: Better Auth's own `/api/auth/*` endpoints (`change-password`, `update-user`, …) don't go through `requireAuth`, and nothing deletes sessions yet — deactivation and password reset must delete the user's sessions (plan 2.4/2.5).
-- Rate limiting is set explicitly (`rateLimit: { enabled: true }`): Better Auth defaults it on only when `NODE_ENV=production`. It keys on `X-Forwarded-For`; with no header everyone shares one bucket, so in dev repeated failed sign-ins (~3 per 10 s) return 429. Trusted-proxy config and a per-email limit are still pending (plan 1.9).
+- Rate limiting is on only in production: `createAuth` takes an explicit `rateLimit` flag, which `index.ts` sets to `NODE_ENV === 'production'` (dev, tests and e2e sign in without 429s). A production deploy must set `NODE_ENV=production` or it runs without brute-force protection. It keys on `X-Forwarded-For`; with no header everyone shares one bucket (~3 sign-ins per 10 s). Trusted-proxy config and a per-email limit are still pending (plan 1.9).
 - Sign-up is disabled, so users are created server-side via `upsertUser` (`apps/api/src/seed-admin.ts`), not the sign-up endpoint. The API seeds the first Admin on startup only when no users exist.
 - Web: use `authClient` from `@/lib/auth-client` (`useSession`, `signIn.email`, `signOut`). Wrap protected routes in `<RequireAuth>` (redirects to `/login` with `state.from`). Same-origin `/api` via the Vite proxy is what makes the cookie work — don't add CORS or an absolute API base URL.
 - Roles: protect API routes with `requireAuth(auth), requireRole('ADMIN')` (403 for other roles), e.g. `app.use('/api/users', …, usersRouter(prisma))`. In the web app, nest Admin-only routes under the `<RequireRole role="ADMIN" />` layout route (non-Admins go to `/`) and hide their nav links in `app-header.tsx`. The web check is only UX; the API check is the real guard.
@@ -67,7 +79,7 @@ Project subagent: `security-reviewer` (`.claude/agents/security-reviewer.md`) au
 - The shared root export (`@helpdesk/shared`) must stay **browser-safe**. Node-only code goes in a subpath export (e.g. `@helpdesk/shared/env`) added to `packages/shared/package.json` `exports`.
 - Domain enums (`USER_ROLES`, `TICKET_STATUSES`, `TICKET_CATEGORIES`) and queue names live only in `packages/shared` — never redefine them in apps.
 - Env vars are validated with Zod via `parseEnv` in each app's `src/env.ts`; add new variables there and to `.env.example`. Dev scripts load the root `.env` with `--env-file-if-exists`. Production-only rules go in a `.superRefine` on the schema (see `apps/api/src/env.ts`). `src/env.ts` and `src/db.ts` parse `process.env` on import and tests have no `.env`, so tests must not import them — pass config to factories (`createAuth`, `createApp`) instead.
-- Don't let a security control depend on `NODE_ENV` defaults: Better Auth (rate limiting, default-secret check) and Express (stack traces in error responses) silently weaken when it isn't `production`. Set them explicitly.
+- Don't let a security control depend on `NODE_ENV` defaults: Better Auth (default-secret check) and Express (stack traces in error responses) silently weaken when it isn't `production`. Set them explicitly.
 - TypeScript: strict, `noUncheckedIndexedAccess`, `verbatimModuleSyntax` (use `import type`), `erasableSyntaxOnly` (no TS `enum` — use `as const` arrays + `z.enum`; no constructor parameter properties). Extensionless relative imports (bundler resolution).
 - Tests sit next to source as `*.test.ts`. API tests need no database or real session: `vi.spyOn(auth.api, 'getSession')` to sign in as a role and `vi.spyOn(prisma.user, 'findMany')` (etc.) to stub queries, with `vi.restoreAllMocks()` in `afterEach` (see `apps/api/src/app.test.ts`).
 - API routes are `Router` factories taking their dependencies (`usersRouter(prisma)`), mounted in `createApp`. Response body types come from `@helpdesk/shared`; send dates as ISO strings. Errors: just throw (Express 5 forwards async rejections); the final error handler in `createApp` logs and returns `{ error: 'Internal Server Error' }` (500), keeping exposed 4xx errors like bad JSON. Mount new routes before it.

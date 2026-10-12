@@ -5,3 +5,6 @@ package-lock.json
 packages/db/src/generated
 .agents
 .claude/skills
+test-results
+playwright-report
+blob-report

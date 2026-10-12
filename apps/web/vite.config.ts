@@ -14,7 +14,8 @@ export default defineConfig({
   server: {
     // Same-origin /api in development so session cookies work without CORS
     proxy: {
-      '/api': 'http://localhost:3000',
+      // Playwright points this at the e2e API (see e2e/playwright.config.ts)
+      '/api': process.env['API_PROXY_TARGET'] ?? 'http://localhost:3000',
     },
   },
 });

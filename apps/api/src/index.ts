@@ -5,7 +5,12 @@ import { env } from './env';
 import { seedAdmin } from './seed-admin';
 
 const auth = createAuth(
-  { secret: env.BETTER_AUTH_SECRET, baseURL: env.BETTER_AUTH_URL, webOrigin: env.WEB_ORIGIN },
+  {
+    secret: env.BETTER_AUTH_SECRET,
+    baseURL: env.BETTER_AUTH_URL,
+    webOrigin: env.WEB_ORIGIN,
+    rateLimit: env.NODE_ENV === 'production',
+  },
   prisma,
 );
 

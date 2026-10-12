@@ -1,0 +1,19 @@
+{
+  "name": "@helpdesk/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report",
+    "db:reset": "tsx scripts/reset-db.ts",
+    "serve:api": "npm run db:reset && tsx ../apps/api/src/index.ts",
+    "typecheck": "tsc"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1"
+  }
+}

@@ -8,3 +8,9 @@ coverage
 .DS_Store
 *.log
 packages/db/src/generated
+
+# Playwright
+test-results
+playwright-report
+blob-report
+playwright/.cache

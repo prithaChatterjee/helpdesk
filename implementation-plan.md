@@ -43,7 +43,7 @@ Goal: users can log in and out with database sessions.
 - [x] 1.6 `POST /auth/login`: verify credentials, create session, set cookie (`HttpOnly`, `Secure`, `SameSite=Lax`)
 - [x] 1.7 `POST /auth/logout` and `GET /auth/me` — Better Auth `/api/auth/sign-out`, plus `GET /api/me`
 - [x] 1.8 Auth middleware (`requireAuth`) and role middleware (`requireRole('ADMIN')`)
-- [ ] 1.9 Rate limiting on login (per IP and per email) — Better Auth per-IP limit always enabled; pending: `advanced.ipAddress` trusted-proxy config (else `X-Forwarded-For` is spoofable) and a per-email limit
+- [ ] 1.9 Rate limiting on login (per IP and per email) — Better Auth per-IP limit enabled in production (`NODE_ENV=production`); pending: `advanced.ipAddress` trusted-proxy config (else `X-Forwarded-For` is spoofable) and a per-email limit
 - [ ] 1.10 CSRF protection: Origin header check on state-changing requests — covered for `/api/auth/*` by Better Auth; app routes pending
 - [x] 1.11 Frontend: login page, auth context, protected routes, logout button
 - [ ] 1.12 Frontend: app shell layout (sidebar nav, header with current user) — header done; sidebar pending

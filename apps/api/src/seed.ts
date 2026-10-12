@@ -45,7 +45,13 @@ if (seedEnv.SEED_USER_EMAIL && seedEnv.SEED_USER_PASSWORD) {
 }
 
 const auth = createAuth(
-  { secret: env.BETTER_AUTH_SECRET, baseURL: env.BETTER_AUTH_URL, webOrigin: env.WEB_ORIGIN },
+  {
+    secret: env.BETTER_AUTH_SECRET,
+    baseURL: env.BETTER_AUTH_URL,
+    webOrigin: env.WEB_ORIGIN,
+    // The seed script serves no requests
+    rateLimit: false,
+  },
   prisma,
 );
 

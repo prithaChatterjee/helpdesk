@@ -12,6 +12,7 @@ const auth = createAuth(
     secret: 'test-secret-test-secret-test-secret',
     baseURL: 'http://localhost:3000',
     webOrigin: 'http://localhost:5173',
+    rateLimit: false,
   },
   prisma,
 );
