@@ -1,8 +1,8 @@
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { authClient } from '@/lib/auth-client';
+import { useActiveSession } from '@/lib/auth-client';
 
 export function HomePage() {
-  const { data: session } = authClient.useSession();
+  const { data: session } = useActiveSession();
 
   return (
     <Card>

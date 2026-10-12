@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { authClient } from '@/lib/auth-client';
+import { authClient, useActiveSession } from '@/lib/auth-client';
 
 export function LoginPage() {
-  const { data: session } = authClient.useSession();
+  const { data: session } = useActiveSession();
   const navigate = useNavigate();
   const location = useLocation();
   const form = useForm<SignInInput>({

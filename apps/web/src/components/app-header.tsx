@@ -2,14 +2,14 @@ import { LogOut } from 'lucide-react';
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { authClient } from '@/lib/auth-client';
+import { authClient, useActiveSession } from '@/lib/auth-client';
 
 function navLinkClass({ isActive }: { isActive: boolean }) {
   return buttonVariants({ variant: isActive ? 'secondary' : 'ghost', size: 'sm' });
 }
 
 export function AppHeader() {
-  const { data: session } = authClient.useSession();
+  const { data: session } = useActiveSession();
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
 

@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router';
-import { authClient } from '@/lib/auth-client';
+import { useActiveSession } from '@/lib/auth-client';
 
 /** Renders children only for signed-in users; everyone else goes to /login. */
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { data: session, isPending } = authClient.useSession();
+  const { data: session, isPending } = useActiveSession();
   const location = useLocation();
 
   if (isPending) {

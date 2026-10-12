@@ -13,3 +13,14 @@ export const authClient = createAuthClient({
     }),
   ],
 });
+
+/**
+ * `authClient.useSession()`, but a deactivated user counts as signed out. Better Auth's
+ * get-session doesn't check `isActive` (only the API's `requireAuth` does), so without this a user
+ * deactivated mid-session would keep seeing the app. Use it instead of `useSession` everywhere.
+ */
+export function useActiveSession() {
+  const result = authClient.useSession();
+  const session = result.data && !result.data.user.isActive ? null : result.data;
+  return { ...result, data: session };
+}
