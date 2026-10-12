@@ -2,3 +2,4 @@
 export * from './auth';
 export * from './domain';
 export * from './queues';
+export * from './users';

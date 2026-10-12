@@ -42,7 +42,7 @@ Goal: users can log in and out with database sessions.
 - [x] 1.5 Session service: create (random token, store SHA-256 hash), validate (expiry, idle timeout, active user), delete, delete-all-for-user
 - [x] 1.6 `POST /auth/login`: verify credentials, create session, set cookie (`HttpOnly`, `Secure`, `SameSite=Lax`)
 - [x] 1.7 `POST /auth/logout` and `GET /auth/me` — Better Auth `/api/auth/sign-out`, plus `GET /api/me`
-- [ ] 1.8 Auth middleware (`requireAuth`) and role middleware (`requireRole('ADMIN')`) — `requireAuth` done; `requireRole` pending
+- [x] 1.8 Auth middleware (`requireAuth`) and role middleware (`requireRole('ADMIN')`)
 - [ ] 1.9 Rate limiting on login (per IP and per email) — Better Auth limits per IP in production; per-email pending
 - [ ] 1.10 CSRF protection: Origin header check on state-changing requests — covered for `/api/auth/*` by Better Auth; app routes pending
 - [x] 1.11 Frontend: login page, auth context, protected routes, logout button
@@ -57,16 +57,16 @@ Goal: users can log in and out with database sessions.
 
 Goal: Admin can manage Agents.
 
-- [ ] 2.1 `GET /users` (list, Admin only)
+- [x] 2.1 `GET /users` (list, Admin only)
 - [ ] 2.2 `POST /users` create Agent (name, email, initial password), with Zod validation and unique email check
 - [ ] 2.3 `PATCH /users/:id` edit name/email
 - [ ] 2.4 `POST /users/:id/deactivate` and `/activate`; deactivation deletes all of the user's sessions
 - [ ] 2.5 `POST /users/:id/reset-password`; deletes all of the user's sessions
 - [ ] 2.6 Guard: Admin cannot deactivate themselves (prevents losing the last Admin)
-- [ ] 2.7 Frontend: Users page with table (name, email, role, status)
+- [x] 2.7 Frontend: Users page with table (name, email, role, status)
 - [ ] 2.8 Frontend: create / edit Agent dialog
 - [ ] 2.9 Frontend: deactivate / activate and reset password actions with confirmation
-- [ ] 2.10 Hide Users nav item for Agents; API tests that Agents get 403
+- [x] 2.10 Hide Users nav item for Agents; API tests that Agents get 403
 
 **Done when:** Admin creates an Agent, the Agent logs in, Admin deactivates them, and the Agent is logged out immediately.
 
