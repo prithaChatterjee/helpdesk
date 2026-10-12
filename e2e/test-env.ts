@@ -9,11 +9,18 @@ export const E2E_WEB_PORT = 5174;
 export const E2E_API_URL = `http://localhost:${E2E_API_PORT}`;
 export const E2E_WEB_URL = `http://localhost:${E2E_WEB_PORT}`;
 
-// Seeded by scripts/reset-db.ts before the API starts
+// Seeded by scripts/reset-db.ts before the API starts. `name` is what the seed script derives
+// (Admins are "Admin", others the local part of the email).
 export const TEST_USERS = {
-  admin: { email: 'admin@e2e.test', password: 'e2e-admin-password' },
-  agent: { email: 'agent@e2e.test', password: 'e2e-agent-password' },
+  admin: { email: 'admin@e2e.test', password: 'e2e-admin-password', name: 'Admin' },
+  agent: { email: 'agent@e2e.test', password: 'e2e-agent-password', name: 'agent' },
+  // Seeded already deactivated (isActive = false)
+  inactive: { email: 'inactive@e2e.test', password: 'e2e-inactive-password', name: 'inactive' },
+  // Active Agent that only the "deactivated mid-session" test uses; that test toggles isActive
+  cutoff: { email: 'cutoff@e2e.test', password: 'e2e-cutoff-password', name: 'cutoff' },
 } as const;
+
+export type TestUser = (typeof TEST_USERS)[keyof typeof TEST_USERS];
 
 // Environment for the API process and the seed script. Every variable is set explicitly so
 // nothing leaks in from the root .env.

@@ -62,14 +62,34 @@ execSync('npx prisma migrate deploy', {
 
 await truncateAllTables();
 
-// The API seed script creates the Admin from ADMIN_* and one more user from SEED_USER_*
-execFileSync(process.execPath, ['--import', 'tsx', 'src/seed.ts'], {
-  cwd: path.join(root, 'apps/api'),
-  env: {
-    ...childEnv,
-    SEED_USER_EMAIL: TEST_USERS.agent.email,
-    SEED_USER_PASSWORD: TEST_USERS.agent.password,
-    SEED_USER_ROLE: 'AGENT',
-  },
-  stdio: 'inherit',
-});
+// The API seed script creates the Admin from ADMIN_* and one more user from SEED_USER_*, so run
+// it once per extra user (re-saving the Admin each time is harmless)
+for (const user of [TEST_USERS.agent, TEST_USERS.inactive, TEST_USERS.cutoff]) {
+  execFileSync(process.execPath, ['--import', 'tsx', 'src/seed.ts'], {
+    cwd: path.join(root, 'apps/api'),
+    env: {
+      ...childEnv,
+      SEED_USER_EMAIL: user.email,
+      SEED_USER_PASSWORD: user.password,
+      SEED_USER_ROLE: 'AGENT',
+    },
+    stdio: 'inherit',
+  });
+}
+
+// The seed always saves users as active
+async function deactivateUser(email: string) {
+  const client = new pg.Client({ connectionString: E2E_DATABASE_URL });
+  await client.connect();
+  try {
+    const { rowCount } = await client.query(
+      'UPDATE "users" SET "isActive" = false WHERE "email" = $1',
+      [email],
+    );
+    if (rowCount !== 1) throw new Error(`Could not deactivate ${email}: user not found`);
+  } finally {
+    await client.end();
+  }
+}
+
+await deactivateUser(TEST_USERS.inactive.email);
