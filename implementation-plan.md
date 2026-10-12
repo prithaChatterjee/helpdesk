@@ -58,13 +58,13 @@ Goal: users can log in and out with database sessions.
 Goal: Admin can manage Agents.
 
 - [x] 2.1 `GET /users` (list, Admin only)
-- [ ] 2.2 `POST /users` create Agent (name, email, initial password), with Zod validation and unique email check
-- [ ] 2.3 `PATCH /users/:id` edit name/email
+- [x] 2.2 `POST /users` create Agent (name, email, initial password), with Zod validation and unique email check
+- [x] 2.3 `PATCH /users/:id` edit name/email (a non-blank `password` also replaces the password and deletes the user's other sessions)
 - [ ] 2.4 `POST /users/:id/deactivate` and `/activate`; deactivation deletes all of the user's sessions, and a Better Auth `hooks.before` rejects inactive users on `/api/auth/*` (except sign-out)
 - [ ] 2.5 `POST /users/:id/reset-password`; deletes all of the user's sessions
 - [ ] 2.6 Guard: Admin cannot deactivate themselves (prevents losing the last Admin)
 - [x] 2.7 Frontend: Users page with table (name, email, role, status)
-- [ ] 2.8 Frontend: create / edit Agent dialog
+- [x] 2.8 Frontend: create / edit Agent dialog (Users page "Create user" button, pencil button per row)
 - [ ] 2.9 Frontend: deactivate / activate and reset password actions with confirmation
 - [x] 2.10 Hide Users nav item for Agents; API tests that Agents get 403
 

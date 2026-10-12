@@ -22,7 +22,7 @@ export function createApp(auth: Auth, prisma: PrismaClient) {
     res.json({ user: res.locals.user });
   });
 
-  app.use('/api/users', requireAuth(auth), requireRole('ADMIN'), usersRouter(prisma));
+  app.use('/api/users', requireAuth(auth), requireRole('ADMIN'), usersRouter(auth, prisma));
 
   // Replaces Express's default handler, which sends stack traces unless NODE_ENV is production.
   // Client errors from body parsing (400 bad JSON, 413 too large) keep their status and message.

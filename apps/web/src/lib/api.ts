@@ -9,12 +9,38 @@ export class ApiError extends Error {
   }
 }
 
-/** GETs JSON from the API (same-origin, so the session cookie is sent). Throws `ApiError` on failure. */
-export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`/api${path}`, { headers: { Accept: 'application/json' } });
+/** Requests JSON from the API (same-origin, so the session cookie is sent). Throws `ApiError` on failure. */
+async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`/api${path}`, {
+    ...init,
+    headers: { Accept: 'application/json', ...init.headers },
+  });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new ApiError(res.status, body?.error ?? `Request failed (${res.status})`);
   }
   return (await res.json()) as T;
+}
+
+/** GETs JSON from the API. Throws `ApiError` on failure. */
+export function apiGet<T>(path: string): Promise<T> {
+  return apiRequest<T>(path);
+}
+
+/** POSTs `body` as JSON to the API. Throws `ApiError` on failure. */
+export function apiPost<T>(path: string, body: unknown): Promise<T> {
+  return apiRequest<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+/** PATCHes `body` as JSON to the API. Throws `ApiError` on failure. */
+export function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  return apiRequest<T>(path, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 }
