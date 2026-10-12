@@ -32,7 +32,7 @@ npm workspaces monorepo, TypeScript everywhere, ESM (`"type": "module"`).
 ```sh
 docker compose up -d   # PostgreSQL :5432, Redis :6379
 npm run dev            # api :3000, worker, web :5173 (Vite proxies /api → :3000)
-npm test               # Vitest (projects: packages/*, apps/api, apps/worker)
+npm test               # Vitest (projects: packages/*, apps/api, apps/worker, apps/web)
 npm run test:e2e       # Playwright: resets + seeds helpdesk_test, starts api :3001 and web :5174, runs e2e/tests
                        # first time: npx playwright install chromium (from e2e/)
 npm run lint           # ESLint flat config at root
@@ -52,7 +52,32 @@ Before finishing a task, run `npm run lint`, `npm run typecheck`, `npm test`, an
 
 Project subagents: `security-reviewer` (`.claude/agents/security-reviewer.md`) audits the whole codebase (or the branch) for security vulnerabilities: auth/sessions, authorization/IDOR, injection, data exposure, secrets, XSS, prompt injection in AI features, dependencies. Read-only. `e2e-tester` writes Playwright tests (see "End-to-end tests" below).
 
-## End-to-end tests
+## Testing
+
+Three layers. Test behavior at the lowest layer that can show it, and add tests with the change, not after.
+
+| Layer      | Files                                                                 | Run                                                                                        |
+| ---------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Unit / API | `*.test.ts` next to source in `packages/*`, `apps/api`, `apps/worker` | `npm test` (all Vitest projects), `npx vitest run --project @helpdesk/api`, or a file path |
+| Component  | `*.test.tsx` next to the component in `apps/web/src`                  | `npx vitest run --project @helpdesk/web`                                                   |
+| End-to-end | `e2e/tests/*.spec.ts`                                                 | `npm run test:e2e` (needs local PostgreSQL), written by the `e2e-tester` subagent          |
+
+Vitest project names are the package names (`@helpdesk/shared`, `@helpdesk/api`, `@helpdesk/worker`, `@helpdesk/web`). Vitest globals are off: import `describe`/`it`/`expect`/`vi` from `vitest`. After writing a test, break the code it covers once and check that the test fails.
+
+### Unit tests
+
+- Pure logic (Zod schemas and helpers in `packages/shared`, worker processors, small API helpers) gets plain unit tests with real inputs and no mocks. Pass inputs as arguments rather than reading globals, e.g. `parseEnv(schema, source)` takes the env object (see `packages/shared/src/env.test.ts`, `apps/worker/src/processors/maintenance.test.ts`).
+- Cover the success path, each validation or error branch, and edge values (empty, boundary, wrong type). One behavior per `it`, named for the behavior (`'throws listing every invalid variable'`).
+- Tests must not import a module that parses `process.env` or opens connections on import (`src/env.ts`, `src/db.ts`); pass config to factories (`createAuth`, `createApp`) instead.
+- API route tests use supertest against `createApp` with no database or real session: `vi.spyOn(auth.api, 'getSession')` to sign in as a role and `vi.spyOn(prisma.user, 'findMany')` (etc.) to stub queries, with `vi.restoreAllMocks()` in `afterEach` (see `apps/api/src/app.test.ts`). Check status codes for each role (401 signed out, 403 wrong role) and that responses never include secrets like password hashes or `tokenHash`.
+
+### Component tests
+
+- Vitest in jsdom via `apps/web/vitest.config.ts`, which merges `vite.config.ts` (so `@/` works; import it with the `.ts` extension or Vite warns). React Testing Library + jest-dom matchers are loaded in `src/test/setup.ts`, which also runs `cleanup` because globals are off.
+- Render inside a fresh `QueryClient` with `retry: false`. Stub `fetch` with `vi.spyOn(globalThis, 'fetch')` (e.g. `Response.json(body, { status })`) rather than mocking `apiGet`, so the request path and error handling are tested too.
+- Query by role, label or text, as a user would. Cover the pending (skeleton, `role="status"`), success, and error (`role="alert"`) states (see `src/pages/users-page.test.tsx`).
+
+### End-to-end tests
 
 Hand e2e work to the `e2e-tester` subagent (`.claude/agents/e2e-tester.md`) instead of writing specs inline. This covers adding specs for a new page or flow, fixing failing or flaky specs, and checking a flow in a real browser.
 
@@ -81,9 +106,8 @@ Hand e2e work to the `e2e-tester` subagent (`.claude/agents/e2e-tester.md`) inst
 - Env vars are validated with Zod via `parseEnv` in each app's `src/env.ts`; add new variables there and to `.env.example`. Dev scripts load the root `.env` with `--env-file-if-exists`. Production-only rules go in a `.superRefine` on the schema (see `apps/api/src/env.ts`). `src/env.ts` and `src/db.ts` parse `process.env` on import and tests have no `.env`, so tests must not import them — pass config to factories (`createAuth`, `createApp`) instead.
 - Don't let a security control depend on `NODE_ENV` defaults: Better Auth (default-secret check) and Express (stack traces in error responses) silently weaken when it isn't `production`. Set them explicitly.
 - TypeScript: strict, `noUncheckedIndexedAccess`, `verbatimModuleSyntax` (use `import type`), `erasableSyntaxOnly` (no TS `enum` — use `as const` arrays + `z.enum`; no constructor parameter properties). Extensionless relative imports (bundler resolution).
-- Tests sit next to source as `*.test.ts`. API tests need no database or real session: `vi.spyOn(auth.api, 'getSession')` to sign in as a role and `vi.spyOn(prisma.user, 'findMany')` (etc.) to stub queries, with `vi.restoreAllMocks()` in `afterEach` (see `apps/api/src/app.test.ts`).
 - API routes are `Router` factories taking their dependencies (`usersRouter(prisma)`), mounted in `createApp`. Response body types come from `@helpdesk/shared`; send dates as ISO strings. Errors: just throw (Express 5 forwards async rejections); the final error handler in `createApp` logs and returns `{ error: 'Internal Server Error' }` (500), keeping exposed 4xx errors like bad JSON. Mount new routes before it.
-- Web data fetching: TanStack Query (`useQuery`, provider in `main.tsx`) with `apiGet<T>(path)` from `@/lib/api` (relative `/api` path, throws `ApiError` with `status`). Handle pending and error states on every page.
+- Web data fetching: TanStack Query (`useQuery`, provider in `main.tsx`) with `apiGet<T>(path)` from `@/lib/api` (relative `/api` path, throws `ApiError` with `status`). Handle pending and error states on every page: while pending, show a shadcn `Skeleton` shaped like the content (e.g. real table headers with placeholder rows) inside `role="status"` with an `sr-only` "Loading…" label, not a text message; show errors in a `role="alert"` element.
 - **Prisma 7** (`prisma-client` generator + `@prisma/adapter-pg`). Keep `prisma`, `@prisma/client` and `@prisma/adapter-pg` on the same version. npm's `latest` tag for the `prisma` CLI points to an 8.x release candidate, so always install with an explicit version (e.g. `prisma@7.10.0`).
 - Import the client and model types from `@helpdesk/db`, never from `./generated` paths or `@prisma/client`. Each app creates its own client in `src/db.ts` from its validated env.
 - Schema: models PascalCase, tables snake_case plural via `@@map`, ids `@default(uuid(7)) @db.Uuid`, timestamps `@db.Timestamptz(3)`. Change the schema, then run `npm run db:migrate -- --name <change>`; commit the migration folder.
@@ -101,5 +125,7 @@ Hand e2e work to the `e2e-tester` subagent (`.claude/agents/e2e-tester.md`) inst
 - Claude models: `claude-haiku-5-5` for classification, `claude-sonnet-5-5` for summaries/reply drafts.
 
 ## Environment
+
+Use npm only (`package-lock.json`); Bun and other package managers aren't installed or supported. In the user's PowerShell, `npm.ps1` needs the `CurrentUser` execution policy `RemoteSigned` (already set); if "running scripts is disabled" comes back, use `npm.cmd`.
 
 Windows; Docker Desktop is not installed, so Redis may be unavailable locally. PostgreSQL 17 runs natively as the auto-start Windows service `postgresql-17` (binaries and data in `C:\Users\pchat\postgres17`) on `localhost:5432`, with the same `helpdesk`/`helpdesk` user and database as `docker-compose.yml` (superuser `postgres`/`postgres`), with `timezone = 'UTC'` (Prisma's pg adapter sends timestamps without an offset, so a non-UTC server timezone shifts every stored time). Avoid `npx prisma dev` for this project: it is PGlite, serves only `template1` (breaks shadow databases and DataGrip).
