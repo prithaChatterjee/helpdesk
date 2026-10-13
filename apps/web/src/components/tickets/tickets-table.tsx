@@ -2,24 +2,33 @@ import {
   type Page,
   type Sort,
   TICKET_CATEGORY_LABELS,
-  type TicketListItem,
+  type TicketListRow,
   type TicketSortField,
 } from '@helpdesk/shared';
 import { Link } from 'react-router';
-import { DataTable, type DataTableColumn, DataTableSkeleton } from '@/components/data-table';
-import { TicketStatusBadge } from '@/components/ticket-status-badge';
+import { DataTable, type DataTableColumn, DataTableSkeleton } from '@/components/common/data-table';
+import { TicketStatusBadge } from '@/components/tickets/ticket-status-badge';
 import { dateTimeFormat } from '@/lib/format';
 
-const ticketColumns: readonly DataTableColumn<TicketListItem, TicketSortField>[] = [
+/** "No replies", "1 reply", "3 replies" */
+function replyCountLabel(count: number) {
+  if (count === 0) return 'No replies';
+  return count === 1 ? '1 reply' : `${count} replies`;
+}
+
+const ticketColumns: readonly DataTableColumn<TicketListRow, TicketSortField>[] = [
   {
     header: 'Subject',
     sortField: 'subject',
     cell: (ticket) => (
-      <Link to={`/tickets/${ticket.id}`} className="hover:underline">
-        {ticket.subject}
-      </Link>
+      <>
+        <Link to={`/tickets/${ticket.id}`} className="block truncate font-medium hover:underline">
+          {ticket.subject}
+        </Link>
+        <span className="text-xs text-muted-foreground">{replyCountLabel(ticket.replyCount)}</span>
+      </>
     ),
-    className: 'max-w-80 truncate font-medium',
+    className: 'max-w-80',
     skeletonClassName: 'h-4 w-56',
   },
   {
@@ -51,7 +60,7 @@ const ticketColumns: readonly DataTableColumn<TicketListItem, TicketSortField>[]
 
 interface TicketsTableProps {
   /** One page of tickets */
-  tickets: TicketListItem[];
+  tickets: TicketListRow[];
   /** The order `tickets` came back in from the API; `undefined` for the API's default order */
   sort: Sort<TicketSortField> | undefined;
   onSortChange: (sort: Sort<TicketSortField> | undefined) => void;

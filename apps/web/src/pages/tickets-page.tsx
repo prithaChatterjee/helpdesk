@@ -9,7 +9,8 @@ import {
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { TicketsTable, TicketsTableSkeleton } from '@/components/tickets-table';
+import { TicketsTable, TicketsTableSkeleton } from '@/components/tickets/tickets-table';
+import { LoadError } from '@/components/common/load-error';
 import { apiGet } from '@/lib/api';
 
 export function TicketsPage() {
@@ -48,9 +49,7 @@ export function TicketsPage() {
         {isPending ? (
           <TicketsTableSkeleton />
         ) : error ? (
-          <p role="alert" className="py-6 text-center text-sm text-destructive">
-            Couldn't load tickets: {error.message}
-          </p>
+          <LoadError>Couldn't load tickets: {error.message}</LoadError>
         ) : (
           <TicketsTable
             tickets={data.tickets}

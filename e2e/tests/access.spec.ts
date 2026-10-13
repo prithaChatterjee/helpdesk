@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { TEST_USERS } from '../test-env';
-import { signIn, submitSignIn, welcomeHeading } from './helpers';
+import { createTicket, signIn, submitSignIn, uniqueEmail, welcomeHeading } from './helpers';
 
 test.describe('unauthenticated access', () => {
   test('home redirects to /login and returns there after sign-in', async ({ page }) => {
@@ -36,6 +36,19 @@ test.describe('unauthenticated access', () => {
   test('API refuses /api/me and /api/users without a session', async ({ page }) => {
     expect((await page.request.get('/api/me')).status()).toBe(401);
     expect((await page.request.get('/api/users')).status()).toBe(401);
+  });
+
+  test('API refuses to read, update or reply to a ticket without a session', async ({
+    page,
+    request,
+  }) => {
+    const ticketId = await createTicket(request, uniqueEmail('signed-out-api'));
+    const path = `/api/tickets/${ticketId}`;
+
+    expect((await page.request.get(path)).status()).toBe(401);
+    expect((await page.request.patch(path, { data: { status: 'RESOLVED' } })).status()).toBe(401);
+    const reply = await page.request.post(`${path}/replies`, { data: { body: 'Hello' } });
+    expect(reply.status()).toBe(401);
   });
 });
 

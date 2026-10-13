@@ -1,8 +1,8 @@
 import { type Sort, type UserListItem, UserRole, type UserSortField } from '@helpdesk/shared';
-import { DataTable, type DataTableColumn, DataTableSkeleton } from '@/components/data-table';
-import { DeleteUserDialog } from '@/components/delete-user-dialog';
+import { DataTable, type DataTableColumn, DataTableSkeleton } from '@/components/common/data-table';
+import { DeleteUserDialog } from '@/components/users/delete-user-dialog';
 import { Badge } from '@/components/ui/badge';
-import { UserFormDialog } from '@/components/user-form-dialog';
+import { UserFormDialog } from '@/components/users/user-form-dialog';
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
 

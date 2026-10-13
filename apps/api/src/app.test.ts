@@ -725,6 +725,8 @@ describe('GET /api/tickets', () => {
     customerName: 'Jane',
     createdAt,
     updatedAt,
+    // The first email and two more messages
+    _count: { messages: 3 },
   };
 
   /** Stubs one page of tickets and the total; the transaction just runs both stubs. */
@@ -763,6 +765,7 @@ describe('GET /api/tickets', () => {
             category: null,
             customerEmail: 'jane@customer.test',
             customerName: 'Jane',
+            replyCount: 2,
             createdAt: '2026-10-01T10:00:00.000Z',
             updatedAt: '2026-10-02T10:00:00.000Z',
           },
@@ -777,6 +780,31 @@ describe('GET /api/tickets', () => {
       );
     },
   );
+
+  it('counts messages in the database for the reply count', async () => {
+    signInAs('AGENT');
+    const { findMany } = stubTicketPage([ticketRow]);
+
+    await request(app).get('/api/tickets');
+
+    expect(findMany.mock.calls[0]?.[0]?.select).toMatchObject({
+      _count: { select: { messages: true } },
+    });
+  });
+
+  it.each([
+    [1, 0],
+    // A ticket always has its first email, but a count of 0 must not go negative
+    [0, 0],
+  ])('reports %i messages as %i replies', async (messages, replyCount) => {
+    signInAs('AGENT');
+    stubTicketPage([{ ...ticketRow, _count: { messages } }]);
+
+    const res = await request(app).get('/api/tickets');
+
+    expect(res.body.tickets[0]).toMatchObject({ replyCount });
+    expect(res.body.tickets[0]).not.toHaveProperty('_count');
+  });
 
   it('skips the rows of earlier pages', async () => {
     signInAs('AGENT');
@@ -1079,5 +1107,135 @@ describe('PATCH /api/tickets/:id', () => {
 
     expect(res.status).toBe(404);
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/tickets/:id/replies', () => {
+  const ticketId = '0199a000-0000-7000-8000-0000000000a1';
+  const savedMessage = {
+    id: 'm3',
+    direction: 'OUTBOUND',
+    fromEmail: 'test@example.com',
+    fromName: 'Test User',
+    bodyText: 'Here is a reset link.',
+    createdAt: new Date('2026-10-03T10:00:00.000Z'),
+  };
+
+  /** Stubs the transaction; its queries are lazy, so the spies only record their arguments. */
+  function stubReply(result: unknown = [{ id: ticketId }, savedMessage]) {
+    const update = vi.spyOn(prisma.ticket, 'update').mockReturnValue('update' as never);
+    const create = vi.spyOn(prisma.message, 'create').mockReturnValue('create' as never);
+    const transaction = vi.spyOn(prisma, '$transaction').mockResolvedValue(result as never);
+    return { update, create, transaction };
+  }
+
+  it('returns 401 without a session cookie', async () => {
+    const res = await request(app).post(`/api/tickets/${ticketId}/replies`).send({ body: 'Hi' });
+    expect(res.status).toBe(401);
+  });
+
+  it.each(['ADMIN', 'AGENT'] as const)('saves the reply for an %s', async (role) => {
+    signInAs(role);
+    stubReply();
+
+    const res = await request(app)
+      .post(`/api/tickets/${ticketId}/replies`)
+      .send({ body: 'Here is a reset link.' });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({
+      message: {
+        id: 'm3',
+        direction: 'OUTBOUND',
+        fromEmail: 'test@example.com',
+        fromName: 'Test User',
+        bodyText: 'Here is a reset link.',
+        createdAt: '2026-10-03T10:00:00.000Z',
+      },
+    });
+  });
+
+  it('stores an outbound message from the signed-in Agent, trimmed', async () => {
+    signInAs('AGENT');
+    const { create } = stubReply();
+
+    await request(app)
+      .post(`/api/tickets/${ticketId}/replies`)
+      .send({ body: '  Here is a reset link.\n' });
+
+    expect(create.mock.calls[0]?.[0]?.data).toEqual({
+      ticketId,
+      direction: 'OUTBOUND',
+      fromEmail: 'test@example.com',
+      fromName: 'Test User',
+      bodyText: 'Here is a reset link.',
+      sentByUserId: '0199a000-0000-7000-8000-000000000001',
+    });
+  });
+
+  it('bumps the ticket in the same transaction, before adding the message', async () => {
+    signInAs('AGENT');
+    const { update, transaction } = stubReply();
+
+    await request(app).post(`/api/tickets/${ticketId}/replies`).send({ body: 'Hi' });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: ticketId },
+        data: { updatedAt: expect.any(Date) },
+      }),
+    );
+    expect(transaction).toHaveBeenCalledWith(['update', 'create']);
+  });
+
+  it('does not change the ticket status', async () => {
+    signInAs('AGENT');
+    const { update } = stubReply();
+
+    await request(app).post(`/api/tickets/${ticketId}/replies`).send({ body: 'Hi' });
+
+    expect(update.mock.calls[0]?.[0]?.data).not.toHaveProperty('status');
+  });
+
+  it.each([
+    [{ body: '' }, 'Write a reply'],
+    [{ body: '   ' }, 'Write a reply'],
+    [{ body: 'a'.repeat(20_001) }, 'Keep the reply under 20,000 characters'],
+    [{}, undefined],
+  ])('returns 400 for %o', async (body, error) => {
+    signInAs('AGENT');
+    const { transaction } = stubReply();
+
+    const res = await request(app).post(`/api/tickets/${ticketId}/replies`).send(body);
+
+    expect(res.status).toBe(400);
+    if (error) expect(res.body).toEqual({ error });
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for a ticket that does not exist', async () => {
+    signInAs('AGENT');
+    stubReply();
+    vi.spyOn(prisma, '$transaction').mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('Record not found', {
+        code: 'P2025',
+        clientVersion: 'test',
+      }),
+    );
+
+    const res = await request(app).post(`/api/tickets/${ticketId}/replies`).send({ body: 'Hi' });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Ticket not found' });
+  });
+
+  it('returns 404 without querying for an id that is not a uuid', async () => {
+    signInAs('AGENT');
+    const { transaction } = stubReply();
+
+    const res = await request(app).post('/api/tickets/not-a-uuid/replies').send({ body: 'Hi' });
+
+    expect(res.status).toBe(404);
+    expect(transaction).not.toHaveBeenCalled();
   });
 });

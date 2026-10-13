@@ -1,4 +1,5 @@
-// Happy paths of user management on the Users page (Admin): create, list, edit, delete.
+// Happy paths of user management on the Users page (Admin): create, edit, delete. Table
+// rendering is covered by the component tests.
 import { expect, type Page, test } from '@playwright/test';
 import { TEST_USERS } from '../test-env';
 import {
@@ -45,39 +46,6 @@ test.describe('create user', () => {
     ]);
 
     await expectSignInWorks(browser, user);
-  });
-});
-
-test.describe('list users', () => {
-  test('shows the seeded users; Admin rows can be edited but not deleted', async ({ page }) => {
-    await openUsersAsAdmin(page);
-
-    for (const header of ['Name', 'Email', 'Role', 'Status', 'Created', 'Actions']) {
-      await expect(page.getByRole('columnheader', { name: header, exact: true })).toBeAttached();
-    }
-
-    const adminRow = userRow(page, TEST_USERS.admin.email);
-    await expect(adminRow.getByRole('cell').nth(0)).toHaveText(TEST_USERS.admin.name);
-    await expect(adminRow.getByRole('cell').nth(2)).toHaveText('Admin');
-    await expect(adminRow.getByRole('cell').nth(3)).toHaveText('Active');
-    await expect(
-      adminRow.getByRole('button', { name: `Edit ${TEST_USERS.admin.name}`, exact: true }),
-    ).toBeVisible();
-    await expect(adminRow.getByRole('button', { name: /^Delete / })).toHaveCount(0);
-
-    const agentRow = userRow(page, TEST_USERS.agent.email);
-    await expect(agentRow.getByRole('cell').nth(0)).toHaveText(TEST_USERS.agent.name);
-    await expect(agentRow.getByRole('cell').nth(2)).toHaveText('Agent');
-    await expect(agentRow.getByRole('cell').nth(3)).toHaveText('Active');
-    await expect(
-      agentRow.getByRole('button', { name: `Edit ${TEST_USERS.agent.name}`, exact: true }),
-    ).toBeVisible();
-    await expect(
-      agentRow.getByRole('button', { name: `Delete ${TEST_USERS.agent.name}`, exact: true }),
-    ).toBeVisible();
-
-    const inactiveRow = userRow(page, TEST_USERS.inactive.email);
-    await expect(inactiveRow.getByRole('cell').nth(3)).toHaveText('Deactivated');
   });
 });
 

@@ -119,13 +119,13 @@ Goal: Agents can find and read tickets.
 Goal: Agents reply to customers from the app.
 
 - [ ] 5.1 Configure Postmark sending domain (SPF, DKIM, Return-Path DNS records)
-- [ ] 5.2 `POST /tickets/:id/replies`: save outbound message, enqueue `send-email` job
+- [ ] 5.2 `POST /tickets/:id/replies`: save outbound message, enqueue `send-email` job (saving done: replies are stored, not queued or emailed yet)
 - [ ] 5.3 Worker `send-email`: send via Postmark with correct `In-Reply-To` / `References` headers so the customer's mail client threads it
 - [ ] 5.4 Store the outbound `Message-ID`; mark message as sent or failed
 - [ ] 5.5 Retry with backoff on send failure; show failed state in UI
 - [ ] 5.6 Set ticket status to Resolved after a successful reply (Agent can override)
-- [ ] 5.7 Frontend: reply editor on ticket detail page
-- [ ] 5.8 Record which Agent sent each reply (`sentByUserId`)
+- [x] 5.7 Frontend: reply editor on ticket detail page
+- [x] 5.8 Record which Agent sent each reply (`sentByUserId`)
 
 **Done when:** an Agent replies from the app, the customer receives it in the same email thread, and the ticket moves to Resolved.
 

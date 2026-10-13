@@ -14,6 +14,7 @@ const tickets: TicketListResponse['tickets'] = [
     category: null,
     customerEmail: 'jane@customer.test',
     customerName: 'Jane Doe',
+    replyCount: 0,
     createdAt: '2026-10-01T10:00:00.000Z',
     updatedAt: '2026-10-02T10:00:00.000Z',
   },
@@ -24,6 +25,7 @@ const tickets: TicketListResponse['tickets'] = [
     category: 'REFUND',
     customerEmail: 'bob@customer.test',
     customerName: null,
+    replyCount: 3,
     createdAt: '2026-09-20T08:30:00.000Z',
     updatedAt: '2026-09-21T08:30:00.000Z',
   },
@@ -80,14 +82,14 @@ describe('TicketsPage', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('Loading tickets…');
     expect(screen.getByRole('columnheader', { name: 'Subject' })).toBeInTheDocument();
-    expect(screen.queryByRole('cell', { name: "Can't log in" })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: "Can't log in" })).not.toBeInTheDocument();
   });
 
   it("requests the first page in the API's default order", async () => {
     const fetchSpy = mockFetch(Response.json(firstPage));
     renderPage();
 
-    await screen.findByRole('cell', { name: "Can't log in" });
+    await screen.findByRole('link', { name: "Can't log in" });
     expect(fetchSpy).toHaveBeenCalledWith('/api/tickets?page=1&pageSize=25', expect.anything());
     expect(screen.getByRole('columnheader', { name: 'Updated' })).toHaveAttribute(
       'aria-sort',
@@ -101,7 +103,7 @@ describe('TicketsPage', () => {
       .spyOn(globalThis, 'fetch')
       .mockImplementation(() => Promise.resolve(Response.json(firstPage)));
     renderPage();
-    await screen.findByRole('cell', { name: "Can't log in" });
+    await screen.findByRole('link', { name: "Can't log in" });
 
     await user.click(screen.getByRole('button', { name: 'Subject' }));
 
@@ -123,7 +125,7 @@ describe('TicketsPage', () => {
       .spyOn(globalThis, 'fetch')
       .mockImplementation(() => Promise.resolve(Response.json(firstPage)));
     renderPage();
-    await screen.findByRole('cell', { name: "Can't log in" });
+    await screen.findByRole('link', { name: "Can't log in" });
     const subject = screen.getByRole('columnheader', { name: 'Subject' });
 
     await user.click(screen.getByRole('button', { name: 'Subject' }));
@@ -148,7 +150,7 @@ describe('TicketsPage', () => {
       .spyOn(globalThis, 'fetch')
       .mockImplementation(() => Promise.resolve(Response.json(firstPage)));
     renderPage();
-    await screen.findByRole('cell', { name: "Can't log in" });
+    await screen.findByRole('link', { name: "Can't log in" });
 
     await user.click(screen.getByRole('button', { name: 'Updated' }));
 
@@ -172,7 +174,7 @@ describe('TicketsPage', () => {
       ),
     );
     renderPage();
-    await screen.findByRole('cell', { name: "Can't log in" });
+    await screen.findByRole('link', { name: "Can't log in" });
 
     await user.click(screen.getByRole('button', { name: 'Subject' }));
 
@@ -185,13 +187,14 @@ describe('TicketsPage', () => {
     mockFetch(Response.json(firstPage));
     renderPage();
 
-    const openRow = (await screen.findByRole('cell', { name: "Can't log in" })).closest('tr');
-    const refundRow = screen.getByRole('cell', { name: 'Refund for order 42' }).closest('tr');
+    const openRow = (await screen.findByRole('link', { name: "Can't log in" })).closest('tr');
+    const refundRow = screen.getByRole('link', { name: 'Refund for order 42' }).closest('tr');
     expect(openRow).not.toBeNull();
     expect(refundRow).not.toBeNull();
     const date = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
     const open = within(openRow!);
+    expect(open.getByText('No replies')).toBeInTheDocument();
     expect(open.getByRole('cell', { name: 'Jane Doe' })).toBeInTheDocument();
     expect(open.getByText('Open')).toBeInTheDocument();
     expect(open.getByRole('cell', { name: '—' })).toBeInTheDocument();
@@ -201,9 +204,17 @@ describe('TicketsPage', () => {
 
     // Without a name, the customer is shown by email
     const refund = within(refundRow!);
+    expect(refund.getByText('3 replies')).toBeInTheDocument();
     expect(refund.getByRole('cell', { name: 'bob@customer.test' })).toBeInTheDocument();
     expect(refund.getByText('Resolved')).toBeInTheDocument();
     expect(refund.getByRole('cell', { name: 'Refund request' })).toBeInTheDocument();
+  });
+
+  it('says "1 reply" for a single reply', async () => {
+    mockFetch(Response.json({ ...firstPage, tickets: [{ ...tickets[0]!, replyCount: 1 }] }));
+    renderPage();
+
+    expect(await screen.findByText('1 reply')).toBeInTheDocument();
   });
 
   it("links each subject to the ticket's page", async () => {
@@ -237,7 +248,7 @@ describe('TicketsPage', () => {
       mockPagedApi(101);
       renderPage();
 
-      await screen.findByRole('cell', { name: 'Ticket 1' });
+      await screen.findByRole('link', { name: 'Ticket 1' });
       const nav = screen.getByRole('navigation', { name: 'Pagination' });
       expect(nav).toHaveTextContent('1–25 of 101');
       expect(nav).toHaveTextContent('Page 1 of 5');
@@ -249,11 +260,11 @@ describe('TicketsPage', () => {
       const user = userEvent.setup();
       const fetchSpy = mockPagedApi(101);
       renderPage();
-      await screen.findByRole('cell', { name: 'Ticket 1' });
+      await screen.findByRole('link', { name: 'Ticket 1' });
 
       await user.click(screen.getByRole('button', { name: 'Next page' }));
 
-      expect(await screen.findByRole('cell', { name: 'Ticket 26' })).toBeInTheDocument();
+      expect(await screen.findByRole('link', { name: 'Ticket 26' })).toBeInTheDocument();
       expect(fetchSpy).toHaveBeenLastCalledWith(
         '/api/tickets?page=2&pageSize=25',
         expect.anything(),
@@ -267,11 +278,11 @@ describe('TicketsPage', () => {
       const user = userEvent.setup();
       mockPagedApi(101);
       renderPage();
-      await screen.findByRole('cell', { name: 'Ticket 1' });
+      await screen.findByRole('link', { name: 'Ticket 1' });
 
       await user.click(screen.getByRole('button', { name: 'Last page' }));
 
-      expect(await screen.findByRole('cell', { name: 'Ticket 101' })).toBeInTheDocument();
+      expect(await screen.findByRole('link', { name: 'Ticket 101' })).toBeInTheDocument();
       expect(screen.getByRole('navigation', { name: 'Pagination' })).toHaveTextContent(
         '101–101 of 101',
       );
@@ -283,9 +294,9 @@ describe('TicketsPage', () => {
       const user = userEvent.setup();
       const fetchSpy = mockPagedApi(101);
       renderPage();
-      await screen.findByRole('cell', { name: 'Ticket 1' });
+      await screen.findByRole('link', { name: 'Ticket 1' });
       await user.click(screen.getByRole('button', { name: 'Next page' }));
-      await screen.findByRole('cell', { name: 'Ticket 26' });
+      await screen.findByRole('link', { name: 'Ticket 26' });
 
       await user.click(screen.getByRole('combobox', { name: 'Rows per page' }));
       await user.click(screen.getByRole('option', { name: '50' }));
@@ -296,16 +307,16 @@ describe('TicketsPage', () => {
           expect.anything(),
         ),
       );
-      expect(await screen.findByRole('cell', { name: 'Ticket 50' })).toBeInTheDocument();
+      expect(await screen.findByRole('link', { name: 'Ticket 50' })).toBeInTheDocument();
     });
 
     it('goes back to the first page when the sort changes', async () => {
       const user = userEvent.setup();
       const fetchSpy = mockPagedApi(101);
       renderPage();
-      await screen.findByRole('cell', { name: 'Ticket 1' });
+      await screen.findByRole('link', { name: 'Ticket 1' });
       await user.click(screen.getByRole('button', { name: 'Next page' }));
-      await screen.findByRole('cell', { name: 'Ticket 26' });
+      await screen.findByRole('link', { name: 'Ticket 26' });
 
       await user.click(screen.getByRole('button', { name: 'Subject' }));
 
@@ -324,13 +335,13 @@ describe('TicketsPage', () => {
         .spyOn(globalThis, 'fetch')
         .mockImplementation((input) => Promise.resolve(pagedResponse(input, total)));
       renderPage();
-      await screen.findByRole('cell', { name: 'Ticket 1' });
+      await screen.findByRole('link', { name: 'Ticket 1' });
 
       // Tickets disappear between loading page 1 and asking for page 5
       total = 60;
       await user.click(screen.getByRole('button', { name: 'Last page' }));
 
-      expect(await screen.findByRole('cell', { name: 'Ticket 60' })).toBeInTheDocument();
+      expect(await screen.findByRole('link', { name: 'Ticket 60' })).toBeInTheDocument();
       expect(fetchSpy).toHaveBeenLastCalledWith(
         '/api/tickets?page=3&pageSize=25',
         expect.anything(),

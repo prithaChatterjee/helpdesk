@@ -1,5 +1,8 @@
 import { Prisma, type PrismaClient } from '@helpdesk/db';
 import {
+  type CreateReplyResponse,
+  createReplySchema,
+  MessageDirection,
   type SortOrder,
   type TicketDetailResponse,
   type TicketListResponse,
@@ -56,7 +59,7 @@ export function ticketsRouter(prisma: PrismaClient) {
     const [tickets, total] = await prisma.$transaction(
       [
         prisma.ticket.findMany({
-          select: ticketListSelect,
+          select: { ...ticketListSelect, _count: { select: { messages: true } } },
           // id breaks ties, so equal values keep a stable order
           orderBy: [...ticketOrderBy[sortBy](sortOrder), { id: sortOrder }],
           skip: (page - 1) * pageSize,
@@ -71,8 +74,10 @@ export function ticketsRouter(prisma: PrismaClient) {
       total,
       page,
       pageSize,
-      tickets: tickets.map((ticket) => ({
+      tickets: tickets.map(({ _count, ...ticket }) => ({
         ...ticket,
+        // Every message after the customer's first email: their follow-ups and Agent replies
+        replyCount: Math.max(_count.messages - 1, 0),
         createdAt: ticket.createdAt.toISOString(),
         updatedAt: ticket.updatedAt.toISOString(),
       })),
@@ -162,6 +167,61 @@ export function ticketsRouter(prisma: PrismaClient) {
       },
     };
     res.json(body);
+  });
+
+  // An Agent's reply, added to the thread. Not emailed yet: sending comes with the email provider.
+  router.post('/:id/replies', async (req, res) => {
+    const id = req.params.id;
+    if (!z.uuid().safeParse(id).success) {
+      res.status(404).json({ error: TICKET_NOT_FOUND });
+      return;
+    }
+    const parsed = createReplySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid request' });
+      return;
+    }
+    const { user } = res.locals;
+
+    let message;
+    try {
+      [, message] = await prisma.$transaction([
+        // Fails first (P2025) when there is no such ticket; bumps updatedAt like a customer reply
+        prisma.ticket.update({
+          where: { id },
+          data: { updatedAt: new Date() },
+          select: { id: true },
+        }),
+        prisma.message.create({
+          data: {
+            ticketId: id,
+            direction: MessageDirection.OUTBOUND,
+            fromEmail: user.email,
+            fromName: user.name,
+            bodyText: parsed.data.body,
+            sentByUserId: user.id,
+          },
+          select: {
+            id: true,
+            direction: true,
+            fromEmail: true,
+            fromName: true,
+            bodyText: true,
+            createdAt: true,
+          },
+        }),
+      ]);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        res.status(404).json({ error: TICKET_NOT_FOUND });
+        return;
+      }
+      throw err;
+    }
+    const body: CreateReplyResponse = {
+      message: { ...message, createdAt: message.createdAt.toISOString() },
+    };
+    res.status(201).json(body);
   });
 
   return router;

@@ -1,5 +1,11 @@
-import { type Browser, type BrowserContext, expect, type Page } from '@playwright/test';
-import { E2E_WEB_URL } from '../test-env';
+import {
+  type APIRequestContext,
+  type Browser,
+  type BrowserContext,
+  expect,
+  type Page,
+} from '@playwright/test';
+import { E2E_API_URL, E2E_INBOUND_EMAIL_SECRET, E2E_WEB_URL } from '../test-env';
 
 // Better Auth's session cookie name (no custom prefix, not __Secure- over http)
 export const SESSION_COOKIE = 'better-auth.session_token';
@@ -62,7 +68,8 @@ export interface ListedUser {
   isActive: boolean;
 }
 
-function uniqueSuffix() {
+/** A short random suffix for unique test data. */
+export function uniqueSuffix() {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
@@ -132,4 +139,68 @@ export async function expectSignInWorks(browser: Browser, user: NewUser) {
   } finally {
     await page.context().close();
   }
+}
+
+export const WEBHOOK_URL = `${E2E_API_URL}/api/webhooks/inbound-email`;
+
+/** A provider-neutral email for `POST /api/webhooks/inbound-email`. */
+export interface InboundEmailBody {
+  messageId: string;
+  from: { email: string; name?: string };
+  subject?: string;
+  text?: string;
+  inReplyTo?: string;
+}
+
+export interface InboundEmailResult {
+  result: 'created' | 'appended' | 'duplicate' | 'ignored';
+  ticketId?: string;
+  reason?: string;
+}
+
+/** A first email from a new customer, unique per call. */
+export function uniqueEmail(label: string) {
+  const suffix = uniqueSuffix();
+  return {
+    messageId: `<${label}-${suffix}@customer.e2e.test>`,
+    from: { email: `customer-${suffix}@customer.e2e.test`, name: `Customer ${suffix}` },
+    subject: `E2E ${label} ${suffix}`,
+    text: `Hello, this is ${label} ${suffix}.`,
+  } satisfies InboundEmailBody;
+}
+
+/** Posts an email to the inbound webhook with the e2e secret. */
+export async function postInboundEmail(request: APIRequestContext, body: InboundEmailBody) {
+  return request.post(WEBHOOK_URL, {
+    data: body,
+    headers: { Authorization: `Bearer ${E2E_INBOUND_EMAIL_SECRET}` },
+  });
+}
+
+/** Posts an email that must create a ticket and returns the ticket id. */
+export async function createTicket(request: APIRequestContext, body: InboundEmailBody) {
+  const response = await postInboundEmail(request, body);
+  expect(response.status(), await response.text()).toBe(201);
+  const result = (await response.json()) as InboundEmailResult;
+  expect(result.result).toBe('created');
+  if (!result.ticketId) throw new Error('The webhook created a ticket but returned no ticketId');
+  return result.ticketId;
+}
+
+/** The subject link (to the ticket's page) in the Tickets table. */
+export function subjectLink(page: Page, subject: string) {
+  return page.getByRole('link', { name: subject, exact: true });
+}
+
+/** The Tickets table rows whose Subject link is exactly `subject`. */
+export function ticketRow(page: Page, subject: string) {
+  return page.getByRole('row').filter({ has: subjectLink(page, subject) });
+}
+
+/** Opens the Tickets page through the header nav link. */
+export async function openTicketsFromNav(page: Page) {
+  // exact: the ticket page also has an "All tickets" link
+  await page.getByRole('link', { name: 'Tickets', exact: true }).click();
+  await expect(page).toHaveURL('/tickets');
+  await expect(page.getByText('Support emails, most recent activity first.')).toBeVisible();
 }

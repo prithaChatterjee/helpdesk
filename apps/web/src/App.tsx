@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router';
-import { AppLayout } from '@/components/app-layout';
-import { RequireAuth } from '@/components/require-auth';
-import { RequireRole } from '@/components/require-role';
+import { AppLayout } from '@/components/layout/app-layout';
+import { RequireAuth } from '@/components/auth/require-auth';
+import { RequireRole } from '@/components/auth/require-role';
 import { HomePage } from '@/pages/home-page';
 import { LoginPage } from '@/pages/login-page';
 import { TicketDetailPage } from '@/pages/ticket-detail-page';

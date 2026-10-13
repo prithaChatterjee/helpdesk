@@ -1,95 +1,23 @@
-// Happy paths of inbound email → ticket: the webhook creates and threads tickets, and both roles
-// see them on the Tickets page.
-import { type APIRequestContext, expect, type Page, test } from '@playwright/test';
-import { E2E_API_URL, E2E_INBOUND_EMAIL_SECRET, TEST_USERS } from '../test-env';
-import { signIn } from './helpers';
-
-const WEBHOOK_URL = `${E2E_API_URL}/api/webhooks/inbound-email`;
-
-interface InboundEmailBody {
-  messageId: string;
-  from: { email: string; name?: string };
-  subject?: string;
-  text?: string;
-  inReplyTo?: string;
-}
-
-interface InboundEmailResult {
-  result: 'created' | 'appended' | 'duplicate' | 'ignored';
-  ticketId?: string;
-  reason?: string;
-}
-
-function uniqueSuffix() {
-  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-}
-
-/** A first email from a new customer, unique per call. */
-function uniqueEmail(label: string) {
-  const suffix = uniqueSuffix();
-  return {
-    messageId: `<${label}-${suffix}@customer.e2e.test>`,
-    from: { email: `customer-${suffix}@customer.e2e.test`, name: `Customer ${suffix}` },
-    subject: `E2E ${label} ${suffix}`,
-    text: `Hello, this is ${label} ${suffix}.`,
-  } satisfies InboundEmailBody;
-}
-
-/** Posts an email to the inbound webhook with the e2e secret. */
-async function postInboundEmail(request: APIRequestContext, body: InboundEmailBody) {
-  return request.post(WEBHOOK_URL, {
-    data: body,
-    headers: { Authorization: `Bearer ${E2E_INBOUND_EMAIL_SECRET}` },
-  });
-}
-
-/** Posts an email that must create a ticket and returns the ticket id. */
-async function createTicket(request: APIRequestContext, body: InboundEmailBody) {
-  const response = await postInboundEmail(request, body);
-  expect(response.status(), await response.text()).toBe(201);
-  const result = (await response.json()) as InboundEmailResult;
-  expect(result.result).toBe('created');
-  expect(result.ticketId).toBeTruthy();
-  return result.ticketId;
-}
-
-/** The Tickets table rows whose Subject cell is exactly `subject`. */
-function ticketRow(page: Page, subject: string) {
-  return page
-    .getByRole('row')
-    .filter({ has: page.getByRole('cell', { name: subject, exact: true }) });
-}
-
-/** Opens the Tickets page through the header nav link. */
-async function openTicketsFromNav(page: Page) {
-  await page.getByRole('link', { name: 'Tickets' }).click();
-  await expect(page).toHaveURL('/tickets');
-  await expect(page.getByText('Support emails, most recent activity first.')).toBeVisible();
-}
+// Happy paths of inbound email → ticket: the webhook creates and threads tickets, they show on
+// the Tickets page, and an Agent's reply is saved. How rows and messages render is covered by the
+// component tests.
+import { expect, test } from '@playwright/test';
+import { TEST_USERS } from '../test-env';
+import {
+  createTicket,
+  type InboundEmailBody,
+  type InboundEmailResult,
+  openTicketsFromNav,
+  postInboundEmail,
+  signIn,
+  subjectLink,
+  ticketRow,
+  uniqueEmail,
+  uniqueSuffix,
+  WEBHOOK_URL,
+} from './helpers';
 
 test.describe('new email creates a ticket', () => {
-  test('Admin sees the ticket with subject, customer name and Open status', async ({
-    page,
-    request,
-  }) => {
-    const email = uniqueEmail('admin-view');
-    await createTicket(request, email);
-
-    await signIn(page, TEST_USERS.admin);
-    await openTicketsFromNav(page);
-
-    for (const header of ['Subject', 'Customer', 'Status', 'Category', 'Updated']) {
-      await expect(page.getByRole('columnheader', { name: header, exact: true })).toBeVisible();
-    }
-    await expect(ticketRow(page, email.subject).getByRole('cell')).toHaveText([
-      email.subject,
-      email.from.name,
-      'Open',
-      '—',
-      /\d{4}/,
-    ]);
-  });
-
   test('Agent sees the Tickets link and the ticket', async ({ page, request }) => {
     const email = uniqueEmail('agent-view');
     await createTicket(request, email);
@@ -127,7 +55,42 @@ test.describe('customer reply', () => {
     await signIn(page, TEST_USERS.agent);
     await openTicketsFromNav(page);
     await expect(ticketRow(page, email.subject)).toHaveCount(1);
+    await expect(ticketRow(page, email.subject).getByRole('cell').first()).toContainText('1 reply');
     await expect(ticketRow(page, reply.subject)).toHaveCount(0);
+  });
+});
+
+test.describe('Agent reply', () => {
+  test('Agent saves a reply that shows in the thread and the reply count', async ({
+    page,
+    request,
+  }) => {
+    const email = uniqueEmail('agent-reply');
+    const ticketId = await createTicket(request, email);
+    const replyText = `Thanks for reaching out.
+We are looking into it.
+Ref ${uniqueSuffix()}`;
+
+    await signIn(page, TEST_USERS.agent);
+    await openTicketsFromNav(page);
+    await subjectLink(page, email.subject).click();
+    await expect(page).toHaveURL(`/tickets/${ticketId}`);
+    await expect(page.getByRole('heading', { level: 1, name: email.subject })).toBeVisible();
+
+    await page.getByRole('textbox', { name: 'Reply' }).fill(replyText);
+    await page.getByRole('button', { name: 'Save reply' }).click();
+
+    // Saved by the API under the signed-in Agent's name, then refetched into the thread
+    const reply = page
+      .getByRole('list', { name: 'Messages' })
+      .getByRole('article', { name: `Reply from ${TEST_USERS.agent.name}` });
+    await expect(reply).toHaveCount(1);
+    await expect(reply).toContainText('We are looking into it.');
+
+    await openTicketsFromNav(page);
+    const row = ticketRow(page, email.subject);
+    await expect(row).toHaveCount(1);
+    await expect(row.getByRole('cell').first()).toContainText('1 reply');
   });
 });
 

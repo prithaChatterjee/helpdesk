@@ -16,9 +16,15 @@ export const ticketListItemSchema = z.object({
 });
 export type TicketListItem = z.infer<typeof ticketListItemSchema>;
 
+/** A row of the tickets list: the ticket and how many messages followed the first email. */
+export const ticketListRowSchema = ticketListItemSchema.extend({
+  replyCount: z.number().int().nonnegative(),
+});
+export type TicketListRow = z.infer<typeof ticketListRowSchema>;
+
 /** One page of tickets, with the total across all pages. */
 export const ticketListResponseSchema = pageInfoSchema.extend({
-  tickets: z.array(ticketListItemSchema),
+  tickets: z.array(ticketListRowSchema),
 });
 export type TicketListResponse = z.infer<typeof ticketListResponseSchema>;
 
@@ -60,6 +66,26 @@ export type UpdateTicketInput = z.infer<typeof updateTicketSchema>;
 /** The ticket after `PATCH /api/tickets/:id`. */
 export const updateTicketResponseSchema = z.object({ ticket: ticketListItemSchema });
 export type UpdateTicketResponse = z.infer<typeof updateTicketResponseSchema>;
+
+/** Longest reply an Agent can write, in characters */
+export const REPLY_MAX_LENGTH = 20_000;
+
+/** `POST /api/tickets/:id/replies` body: an Agent's reply, as plain text. */
+export const createReplySchema = z.object({
+  body: z
+    .string()
+    .trim()
+    .min(1, 'Write a reply')
+    .max(
+      REPLY_MAX_LENGTH,
+      `Keep the reply under ${REPLY_MAX_LENGTH.toLocaleString('en')} characters`,
+    ),
+});
+export type CreateReplyInput = z.infer<typeof createReplySchema>;
+
+/** The saved reply, as it appears in the ticket's thread. */
+export const createReplyResponseSchema = z.object({ message: ticketMessageSchema });
+export type CreateReplyResponse = z.infer<typeof createReplyResponseSchema>;
 
 export const INBOUND_EMAIL_RESULTS = ['created', 'appended', 'duplicate', 'ignored'] as const;
 

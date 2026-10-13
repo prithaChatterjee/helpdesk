@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { updateTicketSchema } from './tickets';
+import { createReplySchema, REPLY_MAX_LENGTH, updateTicketSchema } from './tickets';
 
 /** The error messages for `input`, or [] when it is valid. */
 function errorsFor(input: unknown) {
@@ -45,5 +45,43 @@ describe('updateTicketSchema', () => {
 
   it('rejects a body that is not an object', () => {
     expect(errorsFor('RESOLVED')).toHaveLength(1);
+  });
+});
+
+describe('createReplySchema', () => {
+  it('accepts a reply and trims it', () => {
+    expect(createReplySchema.parse({ body: '  Thanks, fixed.\n' })).toEqual({
+      body: 'Thanks, fixed.',
+    });
+  });
+
+  it('keeps line breaks inside the reply', () => {
+    expect(createReplySchema.parse({ body: 'Hi Jane,\n\nDone.' }).body).toBe('Hi Jane,\n\nDone.');
+  });
+
+  it('rejects an empty reply', () => {
+    expect(createReplySchema.safeParse({ body: '' }).error?.issues[0]?.message).toBe(
+      'Write a reply',
+    );
+  });
+
+  it('rejects a reply of only whitespace', () => {
+    expect(createReplySchema.safeParse({ body: ' \n\t ' }).success).toBe(false);
+  });
+
+  it('accepts a reply at the length limit', () => {
+    expect(createReplySchema.safeParse({ body: 'a'.repeat(REPLY_MAX_LENGTH) }).success).toBe(true);
+  });
+
+  it('rejects a reply over the length limit', () => {
+    expect(
+      createReplySchema.safeParse({ body: 'a'.repeat(REPLY_MAX_LENGTH + 1) }).error?.issues[0]
+        ?.message,
+    ).toBe('Keep the reply under 20,000 characters');
+  });
+
+  it('rejects a missing or non-string body', () => {
+    expect(createReplySchema.safeParse({}).success).toBe(false);
+    expect(createReplySchema.safeParse({ body: 42 }).success).toBe(false);
   });
 });

@@ -14,8 +14,9 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { UserFormDialog } from '@/components/user-form-dialog';
-import { UsersTable, UsersTableSkeleton } from '@/components/users-table';
+import { UserFormDialog } from '@/components/users/user-form-dialog';
+import { UsersTable, UsersTableSkeleton } from '@/components/users/users-table';
+import { LoadError } from '@/components/common/load-error';
 import { apiGet } from '@/lib/api';
 
 export function UsersPage() {
@@ -43,9 +44,7 @@ export function UsersPage() {
         {isPending ? (
           <UsersTableSkeleton />
         ) : error ? (
-          <p role="alert" className="py-6 text-center text-sm text-destructive">
-            Couldn't load users: {error.message}
-          </p>
+          <LoadError>Couldn't load users: {error.message}</LoadError>
         ) : (
           <UsersTable
             users={data.users}
