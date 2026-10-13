@@ -1,6 +1,7 @@
 import type { TicketListResponse } from '@helpdesk/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TicketsPage } from './tickets-page';
 
@@ -56,12 +57,79 @@ describe('TicketsPage', () => {
     expect(screen.queryByRole('cell', { name: "Can't log in" })).not.toBeInTheDocument();
   });
 
-  it('requests GET /api/tickets', async () => {
+  it('requests GET /api/tickets sorted by most recent activity', async () => {
     const fetchSpy = mockFetch(Response.json({ tickets }));
     renderPage();
 
     await screen.findByRole('cell', { name: "Can't log in" });
-    expect(fetchSpy).toHaveBeenCalledWith('/api/tickets', expect.anything());
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/tickets?sortBy=updatedAt&sortOrder=desc',
+      expect.anything(),
+    );
+    expect(screen.getByRole('columnheader', { name: 'Updated' })).toHaveAttribute(
+      'aria-sort',
+      'descending',
+    );
+  });
+
+  it('asks the API for the new order when a header is clicked', async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(() => Promise.resolve(Response.json({ tickets })));
+    renderPage();
+    await screen.findByRole('cell', { name: "Can't log in" });
+
+    await user.click(screen.getByRole('button', { name: 'Subject' }));
+
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/tickets?sortBy=subject&sortOrder=asc',
+        expect.anything(),
+      ),
+    );
+    expect(screen.getByRole('columnheader', { name: 'Subject' })).toHaveAttribute(
+      'aria-sort',
+      'ascending',
+    );
+  });
+
+  it('flips the direction when the sorted header is clicked again', async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(() => Promise.resolve(Response.json({ tickets })));
+    renderPage();
+    await screen.findByRole('cell', { name: "Can't log in" });
+
+    await user.click(screen.getByRole('button', { name: 'Updated' }));
+
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/tickets?sortBy=updatedAt&sortOrder=asc',
+        expect.anything(),
+      ),
+    );
+  });
+
+  it('shows rows in the order the API returns them', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(
+        Response.json({
+          // The "API" returns the reverse order for subject sorting; the page must not re-sort
+          tickets: String(input).includes('sortBy=subject') ? [...tickets].reverse() : tickets,
+        }),
+      ),
+    );
+    renderPage();
+    await screen.findByRole('cell', { name: "Can't log in" });
+
+    await user.click(screen.getByRole('button', { name: 'Subject' }));
+
+    await waitFor(() =>
+      expect(screen.getAllByRole('row')[1]).toHaveTextContent('Refund for order 42'),
+    );
   });
 
   it('lists each ticket with customer, status, category and last update', async () => {

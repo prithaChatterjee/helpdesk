@@ -1,5 +1,12 @@
-import type { UserListResponse } from '@helpdesk/shared';
-import { useQuery } from '@tanstack/react-query';
+import {
+  DEFAULT_USER_SORT,
+  type Sort,
+  sortSearchParams,
+  type UserListResponse,
+  type UserSortField,
+} from '@helpdesk/shared';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import {
   Card,
   CardAction,
@@ -13,9 +20,14 @@ import { UsersTable, UsersTableSkeleton } from '@/components/users-table';
 import { apiGet } from '@/lib/api';
 
 export function UsersPage() {
-  const { data, isPending, error } = useQuery({
-    queryKey: ['users'],
-    queryFn: () => apiGet<UserListResponse>('/users'),
+  const [sort, setSort] = useState<Sort<UserSortField>>(DEFAULT_USER_SORT);
+  const { data, isPending, isPlaceholderData, error } = useQuery({
+    // Mutations invalidate ['users'], which also matches every sort
+    queryKey: ['users', sort],
+    // Sorted by the API, never in the browser
+    queryFn: () => apiGet<UserListResponse>(`/users?${sortSearchParams(sort)}`),
+    // Keep showing the current rows while a new sort loads, instead of the skeleton
+    placeholderData: keepPreviousData,
   });
 
   return (
@@ -35,7 +47,12 @@ export function UsersPage() {
             Couldn't load users: {error.message}
           </p>
         ) : (
-          <UsersTable users={data.users} />
+          <UsersTable
+            users={data.users}
+            sort={sort}
+            onSortChange={setSort}
+            busy={isPlaceholderData}
+          />
         )}
       </CardContent>
     </Card>

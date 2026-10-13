@@ -126,6 +126,44 @@ describe('GET /api/users', () => {
 
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { deletedAt: null } }));
   });
+
+  it('sorts oldest first by default', async () => {
+    signInAs('ADMIN');
+    const findMany = vi.spyOn(prisma.user, 'findMany').mockResolvedValue([]);
+
+    await request(app).get('/api/users');
+
+    expect(findMany.mock.calls[0]?.[0]?.orderBy).toEqual([{ createdAt: 'asc' }, { id: 'asc' }]);
+  });
+
+  it.each([
+    ['name', 'asc'],
+    ['email', 'desc'],
+    ['role', 'asc'],
+    ['isActive', 'desc'],
+    ['createdAt', 'desc'],
+  ] as const)('sorts by %s %s in the database', async (sortBy, sortOrder) => {
+    signInAs('ADMIN');
+    const findMany = vi.spyOn(prisma.user, 'findMany').mockResolvedValue([]);
+
+    const res = await request(app).get('/api/users').query({ sortBy, sortOrder });
+
+    expect(res.status).toBe(200);
+    expect(findMany.mock.calls[0]?.[0]?.orderBy).toEqual([
+      { [sortBy]: sortOrder },
+      { id: sortOrder },
+    ]);
+  });
+
+  it('returns 400 for a field that is not sortable', async () => {
+    signInAs('ADMIN');
+    const findMany = vi.spyOn(prisma.user, 'findMany');
+
+    const res = await request(app).get('/api/users').query({ sortBy: 'password' });
+
+    expect(res.status).toBe(400);
+    expect(findMany).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST /api/users', () => {
@@ -716,6 +754,46 @@ describe('GET /api/tickets', () => {
         },
       ],
     });
-    expect(findMany.mock.calls[0]?.[0]?.orderBy).toEqual({ updatedAt: 'desc' });
+    expect(findMany.mock.calls[0]?.[0]?.orderBy).toEqual([{ updatedAt: 'desc' }, { id: 'desc' }]);
+  });
+
+  it.each([
+    ['subject', 'asc', [{ subject: 'asc' }, { id: 'asc' }]],
+    [
+      'customer',
+      'desc',
+      [
+        { customerName: { sort: 'desc', nulls: 'last' } },
+        { customerEmail: 'desc' },
+        { id: 'desc' },
+      ],
+    ],
+    ['status', 'asc', [{ status: 'asc' }, { id: 'asc' }]],
+    ['category', 'asc', [{ category: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }]],
+    ['createdAt', 'asc', [{ createdAt: 'asc' }, { id: 'asc' }]],
+  ])('sorts by %s %s in the database', async (sortBy, sortOrder, orderBy) => {
+    signInAs('AGENT');
+    const findMany = vi.spyOn(prisma.ticket, 'findMany').mockResolvedValue([]);
+
+    const res = await request(app).get('/api/tickets').query({ sortBy, sortOrder });
+
+    expect(res.status).toBe(200);
+    expect(findMany.mock.calls[0]?.[0]?.orderBy).toEqual(orderBy);
+  });
+
+  it('returns 400 for a field that is not sortable', async () => {
+    signInAs('AGENT');
+    const findMany = vi.spyOn(prisma.ticket, 'findMany');
+
+    const res = await request(app).get('/api/tickets').query({ sortBy: 'summary' });
+
+    expect(res.status).toBe(400);
+    expect(findMany).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for an unknown sort direction', async () => {
+    signInAs('AGENT');
+    const res = await request(app).get('/api/tickets').query({ sortOrder: 'sideways' });
+    expect(res.status).toBe(400);
   });
 });

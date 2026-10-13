@@ -2,10 +2,13 @@ import { Prisma, type PrismaClient } from '@helpdesk/db';
 import {
   type CreateUserResponse,
   createUserSchema,
+  type SortOrder,
   type UpdateUserResponse,
   updateUserSchema,
   type UserListResponse,
+  userListQuerySchema,
   UserRole,
+  type UserSortField,
 } from '@helpdesk/shared';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -20,6 +23,18 @@ const userSelect = {
   createdAt: true,
 } as const;
 
+// Each sortable column's ORDER BY
+const userOrderBy: Record<
+  UserSortField,
+  (order: SortOrder) => Prisma.UserOrderByWithRelationInput
+> = {
+  name: (order) => ({ name: order }),
+  email: (order) => ({ email: order }),
+  role: (order) => ({ role: order }),
+  isActive: (order) => ({ isActive: order }),
+  createdAt: (order) => ({ createdAt: order }),
+};
+
 const EMAIL_TAKEN = 'A user with this email already exists';
 const USER_NOT_FOUND = 'User not found';
 
@@ -27,11 +42,20 @@ const USER_NOT_FOUND = 'User not found';
 export function usersRouter(auth: Auth, prisma: PrismaClient) {
   const router = Router();
 
-  router.get('/', async (_req, res) => {
+  // Sorted by `?sortBy=&sortOrder=` (default: oldest first)
+  router.get('/', async (req, res) => {
+    const query = userListQuerySchema.safeParse(req.query);
+    if (!query.success) {
+      res.status(400).json({ error: query.error.issues[0]?.message ?? 'Invalid request' });
+      return;
+    }
+    const { sortBy, sortOrder } = query.data;
+
     const users = await prisma.user.findMany({
       where: { deletedAt: null },
       select: userSelect,
-      orderBy: { createdAt: 'asc' },
+      // id breaks ties, so equal values keep a stable order
+      orderBy: [userOrderBy[sortBy](sortOrder), { id: sortOrder }],
     });
     const body: UserListResponse = {
       users: users.map((user) => ({ ...user, createdAt: user.createdAt.toISOString() })),

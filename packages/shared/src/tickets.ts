@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ticketCategorySchema, ticketStatusSchema } from './domain';
+import { type Sort, sortQuerySchema } from './sorting';
 
 /** A ticket row in the tickets list. */
 export const ticketListItemSchema = z.object({
@@ -28,3 +29,22 @@ export const inboundEmailResponseSchema = z.object({
   reason: z.string().optional(),
 });
 export type InboundEmailResponse = z.infer<typeof inboundEmailResponseSchema>;
+
+/** Columns the tickets list can be sorted by (`?sortBy=`). */
+export const TICKET_SORT_FIELDS = [
+  'subject',
+  'customer',
+  'status',
+  'category',
+  'createdAt',
+  'updatedAt',
+] as const;
+export type TicketSortField = (typeof TICKET_SORT_FIELDS)[number];
+/** Most recent activity first */
+export const DEFAULT_TICKET_SORT: Sort<TicketSortField> = {
+  sortBy: 'updatedAt',
+  sortOrder: 'desc',
+};
+/** `GET /api/tickets` query string. */
+export const ticketListQuerySchema = sortQuerySchema(TICKET_SORT_FIELDS, DEFAULT_TICKET_SORT);
+export type TicketListQuery = z.infer<typeof ticketListQuerySchema>;

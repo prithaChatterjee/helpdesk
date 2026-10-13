@@ -53,12 +53,33 @@ describe('UsersPage', () => {
     expect(screen.queryByRole('cell', { name: 'ada@example.com' })).not.toBeInTheDocument();
   });
 
-  it('requests GET /api/users', async () => {
+  it('requests GET /api/users sorted oldest first', async () => {
     const fetchSpy = mockFetch(Response.json({ users }));
     renderPage();
 
     await screen.findByRole('cell', { name: 'Ada Admin' });
-    expect(fetchSpy).toHaveBeenCalledWith('/api/users', expect.anything());
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/users?sortBy=createdAt&sortOrder=asc',
+      expect.anything(),
+    );
+  });
+
+  it('asks the API to sort by the clicked header', async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(() => Promise.resolve(Response.json({ users })));
+    renderPage();
+    await screen.findByRole('cell', { name: 'Ada Admin' });
+
+    await user.click(screen.getByRole('button', { name: 'Email' }));
+
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/users?sortBy=email&sortOrder=asc',
+        expect.anything(),
+      ),
+    );
   });
 
   it('lists each user with role, status and created date', async () => {

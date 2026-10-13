@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { userRoleSchema } from './domain';
+import { type Sort, sortQuerySchema } from './sorting';
 
 /** A user as returned by the Admin-only users API. */
 export const userListItemSchema = z.object({
@@ -69,3 +70,12 @@ export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 
 export const updateUserResponseSchema = z.object({ user: userListItemSchema });
 export type UpdateUserResponse = z.infer<typeof updateUserResponseSchema>;
+
+/** Columns the users list can be sorted by (`?sortBy=`). `isActive` is the Status column. */
+export const USER_SORT_FIELDS = ['name', 'email', 'role', 'isActive', 'createdAt'] as const;
+export type UserSortField = (typeof USER_SORT_FIELDS)[number];
+/** Oldest first, so the seeded Admin leads */
+export const DEFAULT_USER_SORT: Sort<UserSortField> = { sortBy: 'createdAt', sortOrder: 'asc' };
+/** `GET /api/users` query string. */
+export const userListQuerySchema = sortQuerySchema(USER_SORT_FIELDS, DEFAULT_USER_SORT);
+export type UserListQuery = z.infer<typeof userListQuerySchema>;

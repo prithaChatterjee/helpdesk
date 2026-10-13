@@ -100,7 +100,7 @@ Goal: Agents can find and read tickets.
 
 - [ ] 4.1 `GET /tickets` with server-side pagination — basic `GET /api/tickets` (latest 100 by last activity) and a Tickets page exist; pagination pending
 - [ ] 4.2 Filters: status, category, date range, text search (subject, customer email)
-- [ ] 4.3 Sorting: created date, last updated, status, category
+- [x] 4.3 Sorting: created date, last updated, status, category — server-side via `?sortBy=&sortOrder=` (also subject and customer); the Users table sorts the same way
 - [ ] 4.4 Database indexes for status, category, createdAt; PostgreSQL full-text search index
 - [ ] 4.5 `GET /tickets/:id` with all messages in order
 - [ ] 4.6 `PATCH /tickets/:id` to change status and category manually

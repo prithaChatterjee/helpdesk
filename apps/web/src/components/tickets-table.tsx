@@ -1,7 +1,9 @@
 import {
+  type Sort,
   TICKET_CATEGORY_LABELS,
   TICKET_STATUS_LABELS,
   type TicketListItem,
+  type TicketSortField,
   TicketStatus,
 } from '@helpdesk/shared';
 import { DataTable, type DataTableColumn, DataTableSkeleton } from '@/components/data-table';
@@ -12,20 +14,23 @@ const dateTimeFormat = new Intl.DateTimeFormat(undefined, {
   timeStyle: 'short',
 });
 
-const ticketColumns: readonly DataTableColumn<TicketListItem>[] = [
+const ticketColumns: readonly DataTableColumn<TicketListItem, TicketSortField>[] = [
   {
     header: 'Subject',
+    sortField: 'subject',
     cell: (ticket) => ticket.subject,
     className: 'max-w-80 truncate font-medium',
     skeletonClassName: 'h-4 w-56',
   },
   {
     header: 'Customer',
+    sortField: 'customer',
     cell: (ticket) => ticket.customerName ?? ticket.customerEmail,
     skeletonClassName: 'h-4 w-36',
   },
   {
     header: 'Status',
+    sortField: 'status',
     cell: (ticket) => (
       <Badge variant={ticket.status === TicketStatus.OPEN ? 'default' : 'secondary'}>
         {TICKET_STATUS_LABELS[ticket.status]}
@@ -35,24 +40,39 @@ const ticketColumns: readonly DataTableColumn<TicketListItem>[] = [
   },
   {
     header: 'Category',
+    sortField: 'category',
     cell: (ticket) => (ticket.category ? TICKET_CATEGORY_LABELS[ticket.category] : '—'),
     skeletonClassName: 'h-4 w-28',
   },
   {
     header: 'Updated',
+    sortField: 'updatedAt',
+    sortDescFirst: true,
     cell: (ticket) => dateTimeFormat.format(new Date(ticket.updatedAt)),
     skeletonClassName: 'h-4 w-32',
   },
 ];
 
-/** Tickets with their customer, status, category and last activity. */
-export function TicketsTable({ tickets }: { tickets: TicketListItem[] }) {
+interface TicketsTableProps {
+  tickets: TicketListItem[];
+  /** The order `tickets` came back in from the API */
+  sort: Sort<TicketSortField>;
+  onSortChange: (sort: Sort<TicketSortField>) => void;
+  /** A refetch (e.g. for a new sort) is in progress */
+  busy?: boolean;
+}
+
+/** Tickets with their customer, status, category and last activity. Headers sort via the API. */
+export function TicketsTable({ tickets, sort, onSortChange, busy }: TicketsTableProps) {
   return (
     <DataTable
       columns={ticketColumns}
       rows={tickets}
       getRowKey={(ticket) => ticket.id}
       emptyMessage="No tickets yet."
+      sort={sort}
+      onSortChange={onSortChange}
+      busy={busy}
     />
   );
 }
