@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sortQuerySchema, sortSearchParams } from './sorting';
+import { listQueryString, sortQuerySchema, sortSearchParams } from './sorting';
 import { ticketListQuerySchema } from './tickets';
 import { userListQuerySchema } from './users';
 
@@ -39,6 +39,25 @@ describe('sortSearchParams', () => {
     expect(sortSearchParams({ sortBy: 'createdAt', sortOrder: 'asc' })).toBe(
       'sortBy=createdAt&sortOrder=asc',
     );
+  });
+});
+
+describe('listQueryString', () => {
+  it('sends the sort and the page', () => {
+    expect(
+      listQueryString({
+        sort: { sortBy: 'subject', sortOrder: 'desc' },
+        page: { page: 2, pageSize: 50 },
+      }),
+    ).toBe('?sortBy=subject&sortOrder=desc&page=2&pageSize=50');
+  });
+
+  it('leaves out the sort when there is none', () => {
+    expect(listQueryString({ page: { page: 1, pageSize: 25 } })).toBe('?page=1&pageSize=25');
+  });
+
+  it('is empty with neither sort nor page', () => {
+    expect(listQueryString({})).toBe('');
   });
 });
 

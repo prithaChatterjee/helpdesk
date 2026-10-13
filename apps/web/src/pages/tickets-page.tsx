@@ -1,10 +1,8 @@
 import {
-  DEFAULT_TICKET_SORT,
   FIRST_PAGE,
+  listQueryString,
   type Page,
-  pageSearchParams,
   type Sort,
-  sortSearchParams,
   type TicketListResponse,
   type TicketSortField,
 } from '@helpdesk/shared';
@@ -15,14 +13,14 @@ import { TicketsTable, TicketsTableSkeleton } from '@/components/tickets-table';
 import { apiGet } from '@/lib/api';
 
 export function TicketsPage() {
-  const [sort, setSort] = useState<Sort<TicketSortField>>(DEFAULT_TICKET_SORT);
+  // No sort: the API's default order (most recent activity first)
+  const [sort, setSort] = useState<Sort<TicketSortField>>();
   const [page, setPage] = useState<Page>(FIRST_PAGE);
   const { data, isPending, isPlaceholderData, error } = useQuery({
     // Invalidating ['tickets'] also matches every sort and page
     queryKey: ['tickets', sort, page],
     // Sorted and paged by the API, never in the browser
-    queryFn: () =>
-      apiGet<TicketListResponse>(`/tickets?${sortSearchParams(sort)}&${pageSearchParams(page)}`),
+    queryFn: () => apiGet<TicketListResponse>(`/tickets${listQueryString({ sort, page })}`),
     // Keep showing the current rows while another sort or page loads, instead of the skeleton
     placeholderData: keepPreviousData,
   });
@@ -34,7 +32,7 @@ export function TicketsPage() {
     setPage({ ...page, page: lastPage });
   }
 
-  function handleSortChange(next: Sort<TicketSortField>) {
+  function handleSortChange(next: Sort<TicketSortField> | undefined) {
     setSort(next);
     // A new order starts from the top
     setPage((current) => ({ ...current, page: 1 }));

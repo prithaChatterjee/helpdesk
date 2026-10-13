@@ -80,7 +80,7 @@ describe('DataTable sorting', () => {
     { header: 'Actions', hideHeader: true, cell: () => 'edit' },
   ];
 
-  function renderSortable(sort: { sortBy: SortField; sortOrder: 'asc' | 'desc' }) {
+  function renderSortable(sort: { sortBy: SortField; sortOrder: 'asc' | 'desc' } | undefined) {
     const onSortChange = vi.fn();
     render(
       <DataTable
@@ -136,6 +136,43 @@ describe('DataTable sorting', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Priority' }));
 
     expect(onSortChange).toHaveBeenCalledWith({ sortBy: 'priority', sortOrder: 'desc' });
+  });
+
+  it('removes the sort when the descending column is clicked', async () => {
+    const onSortChange = renderSortable({ sortBy: 'subject', sortOrder: 'desc' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Subject' }));
+
+    expect(onSortChange).toHaveBeenCalledWith(undefined);
+  });
+
+  it('removes the sort when a descending-first column that is ascending is clicked', async () => {
+    const onSortChange = renderSortable({ sortBy: 'priority', sortOrder: 'asc' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Priority' }));
+
+    expect(onSortChange).toHaveBeenCalledWith(undefined);
+  });
+
+  it('shows every sortable column unsorted without a sort', () => {
+    renderSortable(undefined);
+
+    expect(screen.getByRole('columnheader', { name: 'Subject' })).toHaveAttribute(
+      'aria-sort',
+      'none',
+    );
+    expect(screen.getByRole('columnheader', { name: 'Priority' })).toHaveAttribute(
+      'aria-sort',
+      'none',
+    );
+  });
+
+  it('sorts from unsorted on the first click', async () => {
+    const onSortChange = renderSortable(undefined);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Subject' }));
+
+    expect(onSortChange).toHaveBeenCalledWith({ sortBy: 'subject', sortOrder: 'asc' });
   });
 
   it('keeps rows in the given order instead of sorting them', () => {

@@ -53,15 +53,12 @@ describe('UsersPage', () => {
     expect(screen.queryByRole('cell', { name: 'ada@example.com' })).not.toBeInTheDocument();
   });
 
-  it('requests GET /api/users sorted oldest first', async () => {
+  it("requests GET /api/users in the API's default order", async () => {
     const fetchSpy = mockFetch(Response.json({ users }));
     renderPage();
 
     await screen.findByRole('cell', { name: 'Ada Admin' });
-    expect(fetchSpy).toHaveBeenCalledWith(
-      '/api/users?sortBy=createdAt&sortOrder=asc',
-      expect.anything(),
-    );
+    expect(fetchSpy).toHaveBeenCalledWith('/api/users', expect.anything());
   });
 
   it('asks the API to sort by the clicked header', async () => {

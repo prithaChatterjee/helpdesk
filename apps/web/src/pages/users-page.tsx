@@ -1,7 +1,6 @@
 import {
-  DEFAULT_USER_SORT,
+  listQueryString,
   type Sort,
-  sortSearchParams,
   type UserListResponse,
   type UserSortField,
 } from '@helpdesk/shared';
@@ -20,12 +19,13 @@ import { UsersTable, UsersTableSkeleton } from '@/components/users-table';
 import { apiGet } from '@/lib/api';
 
 export function UsersPage() {
-  const [sort, setSort] = useState<Sort<UserSortField>>(DEFAULT_USER_SORT);
+  // No sort: the API's default order (oldest first)
+  const [sort, setSort] = useState<Sort<UserSortField>>();
   const { data, isPending, isPlaceholderData, error } = useQuery({
     // Mutations invalidate ['users'], which also matches every sort
     queryKey: ['users', sort],
     // Sorted by the API, never in the browser
-    queryFn: () => apiGet<UserListResponse>(`/users?${sortSearchParams(sort)}`),
+    queryFn: () => apiGet<UserListResponse>(`/users${listQueryString({ sort })}`),
     // Keep showing the current rows while a new sort loads, instead of the skeleton
     placeholderData: keepPreviousData,
   });

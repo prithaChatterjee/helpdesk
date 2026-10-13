@@ -79,18 +79,15 @@ describe('TicketsPage', () => {
     expect(screen.queryByRole('cell', { name: "Can't log in" })).not.toBeInTheDocument();
   });
 
-  it('requests GET /api/tickets sorted by most recent activity', async () => {
+  it("requests the first page in the API's default order", async () => {
     const fetchSpy = mockFetch(Response.json(firstPage));
     renderPage();
 
     await screen.findByRole('cell', { name: "Can't log in" });
-    expect(fetchSpy).toHaveBeenCalledWith(
-      '/api/tickets?sortBy=updatedAt&sortOrder=desc&page=1&pageSize=25',
-      expect.anything(),
-    );
+    expect(fetchSpy).toHaveBeenCalledWith('/api/tickets?page=1&pageSize=25', expect.anything());
     expect(screen.getByRole('columnheader', { name: 'Updated' })).toHaveAttribute(
       'aria-sort',
-      'descending',
+      'none',
     );
   });
 
@@ -116,7 +113,32 @@ describe('TicketsPage', () => {
     );
   });
 
-  it('flips the direction when the sorted header is clicked again', async () => {
+  it('sorts, flips, then removes the sort on repeated clicks', async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(() => Promise.resolve(Response.json(firstPage)));
+    renderPage();
+    await screen.findByRole('cell', { name: "Can't log in" });
+    const subject = screen.getByRole('columnheader', { name: 'Subject' });
+
+    await user.click(screen.getByRole('button', { name: 'Subject' }));
+    await waitFor(() => expect(subject).toHaveAttribute('aria-sort', 'ascending'));
+
+    await user.click(screen.getByRole('button', { name: 'Subject' }));
+    await waitFor(() => expect(subject).toHaveAttribute('aria-sort', 'descending'));
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      '/api/tickets?sortBy=subject&sortOrder=desc&page=1&pageSize=25',
+      expect.anything(),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Subject' }));
+    await waitFor(() => expect(subject).toHaveAttribute('aria-sort', 'none'));
+    // Without a sort the API falls back to its default order
+    expect(fetchSpy).toHaveBeenLastCalledWith('/api/tickets?page=1&pageSize=25', expect.anything());
+  });
+
+  it('sorts the Updated column newest first on the first click', async () => {
     const user = userEvent.setup();
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
@@ -128,7 +150,7 @@ describe('TicketsPage', () => {
 
     await waitFor(() =>
       expect(fetchSpy).toHaveBeenLastCalledWith(
-        '/api/tickets?sortBy=updatedAt&sortOrder=asc&page=1&pageSize=25',
+        '/api/tickets?sortBy=updatedAt&sortOrder=desc&page=1&pageSize=25',
         expect.anything(),
       ),
     );
@@ -219,7 +241,7 @@ describe('TicketsPage', () => {
 
       expect(await screen.findByRole('cell', { name: 'Ticket 26' })).toBeInTheDocument();
       expect(fetchSpy).toHaveBeenLastCalledWith(
-        '/api/tickets?sortBy=updatedAt&sortOrder=desc&page=2&pageSize=25',
+        '/api/tickets?page=2&pageSize=25',
         expect.anything(),
       );
       expect(screen.getByRole('navigation', { name: 'Pagination' })).toHaveTextContent(
@@ -256,7 +278,7 @@ describe('TicketsPage', () => {
 
       await waitFor(() =>
         expect(fetchSpy).toHaveBeenLastCalledWith(
-          '/api/tickets?sortBy=updatedAt&sortOrder=desc&page=1&pageSize=50',
+          '/api/tickets?page=1&pageSize=50',
           expect.anything(),
         ),
       );
@@ -296,7 +318,7 @@ describe('TicketsPage', () => {
 
       expect(await screen.findByRole('cell', { name: 'Ticket 60' })).toBeInTheDocument();
       expect(fetchSpy).toHaveBeenLastCalledWith(
-        '/api/tickets?sortBy=updatedAt&sortOrder=desc&page=3&pageSize=25',
+        '/api/tickets?page=3&pageSize=25',
         expect.anything(),
       );
     });

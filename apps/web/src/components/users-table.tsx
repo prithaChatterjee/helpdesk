@@ -64,9 +64,9 @@ const userColumns: readonly DataTableColumn<UserListItem, UserSortField>[] = [
 
 interface UsersTableProps {
   users: UserListItem[];
-  /** The order `users` came back in from the API */
-  sort: Sort<UserSortField>;
-  onSortChange: (sort: Sort<UserSortField>) => void;
+  /** The order `users` came back in from the API; `undefined` for the API's default order */
+  sort: Sort<UserSortField> | undefined;
+  onSortChange: (sort: Sort<UserSortField> | undefined) => void;
   /** A refetch (e.g. for a new sort) is in progress */
   busy?: boolean;
 }

@@ -57,9 +57,9 @@ const ticketColumns: readonly DataTableColumn<TicketListItem, TicketSortField>[]
 interface TicketsTableProps {
   /** One page of tickets */
   tickets: TicketListItem[];
-  /** The order `tickets` came back in from the API */
-  sort: Sort<TicketSortField>;
-  onSortChange: (sort: Sort<TicketSortField>) => void;
+  /** The order `tickets` came back in from the API; `undefined` for the API's default order */
+  sort: Sort<TicketSortField> | undefined;
+  onSortChange: (sort: Sort<TicketSortField> | undefined) => void;
   /** Which page `tickets` is */
   page: Page;
   /** Tickets on all pages together */

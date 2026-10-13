@@ -74,10 +74,16 @@ interface DataTableProps<T, TSortField extends string> {
   rows: readonly T[];
   getRowKey: (row: T) => string;
   emptyMessage?: string;
-  /** The sort the rows came back in from the API. Sortable headers show and change it. */
+  /**
+   * The sort the rows came back in from the API, or `undefined` for the API's default order.
+   * Sortable headers show and change it.
+   */
   sort?: Sort<TSortField>;
-  /** Called with the new sort when a sortable header is clicked; refetch with it. */
-  onSortChange?: (sort: Sort<TSortField>) => void;
+  /**
+   * Called when a sortable header is clicked; refetch with the new sort. Clicks cycle: sort,
+   * flip, remove (`undefined`, back to the API's default order).
+   */
+  onSortChange?: (sort: Sort<TSortField> | undefined) => void;
   /** Rows are being refetched (e.g. after a sort change): dims the table and sets `aria-busy`. */
   busy?: boolean;
   /** The page `rows` is. With `total` and `onPageChange`, shows paging controls under the table. */
@@ -122,9 +128,11 @@ export function DataTable<T extends RowData, TSortField extends string = string>
 
   function handleSortingChange(updater: Updater<SortingState>) {
     const next = typeof updater === 'function' ? updater(sorting) : updater;
+    if (!onSortChange) return;
     const first = next[0];
-    if (!first || !onSortChange) return;
-    onSortChange({ sortBy: first.id as TSortField, sortOrder: first.desc ? 'desc' : 'asc' });
+    onSortChange(
+      first && { sortBy: first.id as TSortField, sortOrder: first.desc ? 'desc' : 'asc' },
+    );
   }
 
   // TanStack counts pages from 0, the API from 1
@@ -154,8 +162,8 @@ export function DataTable<T extends RowData, TSortField extends string = string>
     manualSorting: true,
     enableSorting: onSortChange !== undefined,
     enableMultiSort: false,
-    // A list always has a sort (the API's default otherwise), so clicks only flip direction
-    enableSortingRemoval: false,
+    // Clicks cycle: sort (descending first for `sortDescFirst` columns), flip, remove
+    enableSortingRemoval: true,
     onPaginationChange: handlePaginationChange,
     manualPagination: true,
     rowCount: total ?? rows.length,
