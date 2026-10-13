@@ -44,7 +44,10 @@ describe('sortSearchParams', () => {
 
 describe('list query defaults', () => {
   it('sorts tickets by most recent activity', () => {
-    expect(ticketListQuerySchema.parse({})).toEqual({ sortBy: 'updatedAt', sortOrder: 'desc' });
+    expect(ticketListQuerySchema.parse({})).toMatchObject({
+      sortBy: 'updatedAt',
+      sortOrder: 'desc',
+    });
   });
 
   it('sorts users oldest first', () => {

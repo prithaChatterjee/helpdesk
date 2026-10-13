@@ -716,45 +716,114 @@ describe('POST /api/webhooks/inbound-email', () => {
 describe('GET /api/tickets', () => {
   const createdAt = new Date('2026-10-01T10:00:00.000Z');
   const updatedAt = new Date('2026-10-02T10:00:00.000Z');
+  const ticketRow = {
+    id: 't1',
+    subject: "Can't log in",
+    status: 'OPEN',
+    category: null,
+    customerEmail: 'jane@customer.test',
+    customerName: 'Jane',
+    createdAt,
+    updatedAt,
+  };
+
+  /** Stubs one page of tickets and the total; the transaction just runs both stubs. */
+  function stubTicketPage(rows: unknown[] = [], total = rows.length) {
+    const findMany = vi.spyOn(prisma.ticket, 'findMany').mockResolvedValue(rows as never);
+    const count = vi.spyOn(prisma.ticket, 'count').mockResolvedValue(total as never);
+    const transaction = vi
+      .spyOn(prisma, '$transaction')
+      .mockImplementation(((queries: Promise<unknown>[]) => Promise.all(queries)) as never);
+    return { findMany, count, transaction };
+  }
 
   it('returns 401 without a session cookie', async () => {
     const res = await request(app).get('/api/tickets');
     expect(res.status).toBe(401);
   });
 
-  it.each(['ADMIN', 'AGENT'] as const)('lists tickets newest first for an %s', async (role) => {
-    signInAs(role);
-    const findMany = vi.spyOn(prisma.ticket, 'findMany').mockResolvedValue([
-      {
-        id: 't1',
-        subject: "Can't log in",
-        status: 'OPEN',
-        category: null,
-        customerEmail: 'jane@customer.test',
-        customerName: 'Jane',
-        createdAt,
-        updatedAt,
-      },
-    ] as never);
+  it.each(['ADMIN', 'AGENT'] as const)(
+    'lists the first page, newest first, for an %s',
+    async (role) => {
+      signInAs(role);
+      const { findMany } = stubTicketPage([ticketRow], 101);
 
-    const res = await request(app).get('/api/tickets');
+      const res = await request(app).get('/api/tickets');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        total: 101,
+        page: 1,
+        pageSize: 25,
+        tickets: [
+          {
+            id: 't1',
+            subject: "Can't log in",
+            status: 'OPEN',
+            category: null,
+            customerEmail: 'jane@customer.test',
+            customerName: 'Jane',
+            createdAt: '2026-10-01T10:00:00.000Z',
+            updatedAt: '2026-10-02T10:00:00.000Z',
+          },
+        ],
+      });
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          skip: 0,
+          take: 25,
+        }),
+      );
+    },
+  );
+
+  it('skips the rows of earlier pages', async () => {
+    signInAs('AGENT');
+    const { findMany } = stubTicketPage([], 101);
+
+    const res = await request(app).get('/api/tickets').query({ page: 3, pageSize: 10 });
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({
-      tickets: [
-        {
-          id: 't1',
-          subject: "Can't log in",
-          status: 'OPEN',
-          category: null,
-          customerEmail: 'jane@customer.test',
-          customerName: 'Jane',
-          createdAt: '2026-10-01T10:00:00.000Z',
-          updatedAt: '2026-10-02T10:00:00.000Z',
-        },
-      ],
+    expect(res.body).toMatchObject({ total: 101, page: 3, pageSize: 10 });
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 20, take: 10 }));
+  });
+
+  it('counts and fetches in one repeatable-read transaction', async () => {
+    signInAs('AGENT');
+    const { transaction, count } = stubTicketPage();
+
+    await request(app).get('/api/tickets');
+
+    expect(count).toHaveBeenCalled();
+    expect(transaction).toHaveBeenCalledWith(expect.any(Array), {
+      isolationLevel: 'RepeatableRead',
     });
-    expect(findMany.mock.calls[0]?.[0]?.orderBy).toEqual([{ updatedAt: 'desc' }, { id: 'desc' }]);
+  });
+
+  it('returns an empty page with the total past the last page', async () => {
+    signInAs('AGENT');
+    stubTicketPage([], 30);
+
+    const res = await request(app).get('/api/tickets').query({ page: 9, pageSize: 25 });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ total: 30, page: 9, pageSize: 25, tickets: [] });
+  });
+
+  it.each([
+    [{ page: 0 }, 'Page must be at least 1'],
+    [{ page: 'two' }, 'Page must be a whole number'],
+    [{ pageSize: 1000 }, 'Page size must be one of 10, 25, 50, 100'],
+  ])('returns 400 for %o', async (query, error) => {
+    signInAs('AGENT');
+    const { findMany } = stubTicketPage();
+
+    const res = await request(app).get('/api/tickets').query(query);
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error });
+    expect(findMany).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -773,7 +842,7 @@ describe('GET /api/tickets', () => {
     ['createdAt', 'asc', [{ createdAt: 'asc' }, { id: 'asc' }]],
   ])('sorts by %s %s in the database', async (sortBy, sortOrder, orderBy) => {
     signInAs('AGENT');
-    const findMany = vi.spyOn(prisma.ticket, 'findMany').mockResolvedValue([]);
+    const { findMany } = stubTicketPage();
 
     const res = await request(app).get('/api/tickets').query({ sortBy, sortOrder });
 
@@ -783,7 +852,7 @@ describe('GET /api/tickets', () => {
 
   it('returns 400 for a field that is not sortable', async () => {
     signInAs('AGENT');
-    const findMany = vi.spyOn(prisma.ticket, 'findMany');
+    const { findMany } = stubTicketPage();
 
     const res = await request(app).get('/api/tickets').query({ sortBy: 'summary' });
 

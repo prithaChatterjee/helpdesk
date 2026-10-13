@@ -159,6 +159,96 @@ describe('DataTable sorting', () => {
   });
 });
 
+describe('DataTable pagination', () => {
+  function renderPaged(page: { page: number; pageSize: 10 | 25 | 50 | 100 }, total: number) {
+    const onPageChange = vi.fn();
+    render(
+      <DataTable
+        columns={columns}
+        rows={tickets}
+        getRowKey={(ticket) => ticket.id}
+        page={page}
+        total={total}
+        onPageChange={onPageChange}
+      />,
+    );
+    return onPageChange;
+  }
+
+  it('has no paging controls unless paginated', () => {
+    render(<DataTable columns={columns} rows={tickets} getRowKey={(ticket) => ticket.id} />);
+    expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument();
+  });
+
+  it('shows the rows on this page out of the total', () => {
+    renderPaged({ page: 2, pageSize: 10 }, 42);
+
+    const nav = screen.getByRole('navigation', { name: 'Pagination' });
+    expect(nav).toHaveTextContent('11–20 of 42');
+    expect(nav).toHaveTextContent('Page 2 of 5');
+    expect(screen.getByRole('combobox', { name: 'Rows per page' })).toHaveTextContent('10');
+  });
+
+  it('shows page 1 of 1 when there are no rows', () => {
+    renderPaged({ page: 1, pageSize: 25 }, 0);
+
+    const nav = screen.getByRole('navigation', { name: 'Pagination' });
+    expect(nav).toHaveTextContent('0–0 of 0');
+    expect(nav).toHaveTextContent('Page 1 of 1');
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+  });
+
+  it.each([
+    ['First page', 1],
+    ['Previous page', 2],
+    ['Next page', 4],
+    ['Last page', 5],
+  ])('%s asks for page %i', async (button, expected) => {
+    const onPageChange = renderPaged({ page: 3, pageSize: 10 }, 42);
+
+    await userEvent.click(screen.getByRole('button', { name: button }));
+
+    expect(onPageChange).toHaveBeenCalledWith({ page: expected, pageSize: 10 });
+  });
+
+  it('disables First and Previous on the first page', () => {
+    renderPaged({ page: 1, pageSize: 10 }, 42);
+    expect(screen.getByRole('button', { name: 'First page' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+  });
+
+  it('disables Next and Last on the last page', () => {
+    renderPaged({ page: 5, pageSize: 10 }, 42);
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Last page' })).toBeDisabled();
+  });
+
+  it('starts over at the first page with a new page size', async () => {
+    const onPageChange = renderPaged({ page: 3, pageSize: 10 }, 42);
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Rows per page' }));
+    await userEvent.click(screen.getByRole('option', { name: '25' }));
+
+    expect(onPageChange).toHaveBeenCalledWith({ page: 1, pageSize: 25 });
+  });
+
+  it('disables the page buttons while a page loads', () => {
+    render(
+      <DataTable
+        columns={columns}
+        rows={tickets}
+        getRowKey={(ticket) => ticket.id}
+        page={{ page: 2, pageSize: 10 }}
+        total={42}
+        onPageChange={vi.fn()}
+        busy
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+  });
+});
+
 describe('DataTableSkeleton', () => {
   it('shows the real headers and placeholder rows inside a labelled status', () => {
     render(<DataTableSkeleton columns={columns} label="Loading tickets…" rowCount={3} />);

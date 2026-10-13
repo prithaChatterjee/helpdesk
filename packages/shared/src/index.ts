@@ -2,6 +2,7 @@
 export * from './auth';
 export * from './domain';
 export * from './inbound-email';
+export * from './pagination';
 export * from './queues';
 export * from './sorting';
 export * from './tickets';

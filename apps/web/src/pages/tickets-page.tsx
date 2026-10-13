@@ -1,5 +1,8 @@
 import {
   DEFAULT_TICKET_SORT,
+  FIRST_PAGE,
+  type Page,
+  pageSearchParams,
   type Sort,
   sortSearchParams,
   type TicketListResponse,
@@ -13,14 +16,29 @@ import { apiGet } from '@/lib/api';
 
 export function TicketsPage() {
   const [sort, setSort] = useState<Sort<TicketSortField>>(DEFAULT_TICKET_SORT);
+  const [page, setPage] = useState<Page>(FIRST_PAGE);
   const { data, isPending, isPlaceholderData, error } = useQuery({
-    // Mutations invalidate ['tickets'], which also matches every sort
-    queryKey: ['tickets', sort],
-    // Sorted by the API, never in the browser
-    queryFn: () => apiGet<TicketListResponse>(`/tickets?${sortSearchParams(sort)}`),
-    // Keep showing the current rows while a new sort loads, instead of the skeleton
+    // Invalidating ['tickets'] also matches every sort and page
+    queryKey: ['tickets', sort, page],
+    // Sorted and paged by the API, never in the browser
+    queryFn: () =>
+      apiGet<TicketListResponse>(`/tickets?${sortSearchParams(sort)}&${pageSearchParams(page)}`),
+    // Keep showing the current rows while another sort or page loads, instead of the skeleton
     placeholderData: keepPreviousData,
   });
+
+  // Past the last page (tickets went away since it was opened): show the new last page instead.
+  // Adjusting state while rendering (not in an effect) avoids a render with the empty page.
+  const lastPage = data ? Math.max(Math.ceil(data.total / data.pageSize), 1) : undefined;
+  if (!isPlaceholderData && lastPage !== undefined && page.page > lastPage) {
+    setPage({ ...page, page: lastPage });
+  }
+
+  function handleSortChange(next: Sort<TicketSortField>) {
+    setSort(next);
+    // A new order starts from the top
+    setPage((current) => ({ ...current, page: 1 }));
+  }
 
   return (
     <Card>
@@ -39,7 +57,10 @@ export function TicketsPage() {
           <TicketsTable
             tickets={data.tickets}
             sort={sort}
-            onSortChange={setSort}
+            onSortChange={handleSortChange}
+            page={page}
+            total={data.total}
+            onPageChange={setPage}
             busy={isPlaceholderData}
           />
         )}

@@ -28,6 +28,28 @@ const tickets: TicketListResponse['tickets'] = [
   },
 ];
 
+const firstPage: TicketListResponse = { tickets, total: 2, page: 1, pageSize: 25 };
+
+/** A ticket list response for a request URL, as the API pages `total` tickets. */
+function pagedResponse(input: RequestInfo | URL, total: number) {
+  const params = new URL(String(input), 'http://localhost').searchParams;
+  const page = Number(params.get('page'));
+  const pageSize = Number(params.get('pageSize'));
+  const count = Math.max(Math.min(pageSize, total - (page - 1) * pageSize), 0);
+  const rows = Array.from({ length: count }, (_, i) => {
+    const n = (page - 1) * pageSize + i + 1;
+    return { ...tickets[0]!, id: String(n), subject: `Ticket ${n}` };
+  });
+  return Response.json({ tickets: rows, total, page, pageSize });
+}
+
+/** Stubs fetch with an API of `total` tickets; returns the spy. */
+function mockPagedApi(total: number) {
+  return vi
+    .spyOn(globalThis, 'fetch')
+    .mockImplementation((input) => Promise.resolve(pagedResponse(input, total)));
+}
+
 function renderPage() {
   // No retries, so error states show up right away
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -58,12 +80,12 @@ describe('TicketsPage', () => {
   });
 
   it('requests GET /api/tickets sorted by most recent activity', async () => {
-    const fetchSpy = mockFetch(Response.json({ tickets }));
+    const fetchSpy = mockFetch(Response.json(firstPage));
     renderPage();
 
     await screen.findByRole('cell', { name: "Can't log in" });
     expect(fetchSpy).toHaveBeenCalledWith(
-      '/api/tickets?sortBy=updatedAt&sortOrder=desc',
+      '/api/tickets?sortBy=updatedAt&sortOrder=desc&page=1&pageSize=25',
       expect.anything(),
     );
     expect(screen.getByRole('columnheader', { name: 'Updated' })).toHaveAttribute(
@@ -76,7 +98,7 @@ describe('TicketsPage', () => {
     const user = userEvent.setup();
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
-      .mockImplementation(() => Promise.resolve(Response.json({ tickets })));
+      .mockImplementation(() => Promise.resolve(Response.json(firstPage)));
     renderPage();
     await screen.findByRole('cell', { name: "Can't log in" });
 
@@ -84,7 +106,7 @@ describe('TicketsPage', () => {
 
     await waitFor(() =>
       expect(fetchSpy).toHaveBeenLastCalledWith(
-        '/api/tickets?sortBy=subject&sortOrder=asc',
+        '/api/tickets?sortBy=subject&sortOrder=asc&page=1&pageSize=25',
         expect.anything(),
       ),
     );
@@ -98,7 +120,7 @@ describe('TicketsPage', () => {
     const user = userEvent.setup();
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
-      .mockImplementation(() => Promise.resolve(Response.json({ tickets })));
+      .mockImplementation(() => Promise.resolve(Response.json(firstPage)));
     renderPage();
     await screen.findByRole('cell', { name: "Can't log in" });
 
@@ -106,7 +128,7 @@ describe('TicketsPage', () => {
 
     await waitFor(() =>
       expect(fetchSpy).toHaveBeenLastCalledWith(
-        '/api/tickets?sortBy=updatedAt&sortOrder=asc',
+        '/api/tickets?sortBy=updatedAt&sortOrder=asc&page=1&pageSize=25',
         expect.anything(),
       ),
     );
@@ -117,6 +139,7 @@ describe('TicketsPage', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
       Promise.resolve(
         Response.json({
+          ...firstPage,
           // The "API" returns the reverse order for subject sorting; the page must not re-sort
           tickets: String(input).includes('sortBy=subject') ? [...tickets].reverse() : tickets,
         }),
@@ -133,7 +156,7 @@ describe('TicketsPage', () => {
   });
 
   it('lists each ticket with customer, status, category and last update', async () => {
-    mockFetch(Response.json({ tickets }));
+    mockFetch(Response.json(firstPage));
     renderPage();
 
     const openRow = (await screen.findByRole('cell', { name: "Can't log in" })).closest('tr');
@@ -158,7 +181,7 @@ describe('TicketsPage', () => {
   });
 
   it('says so when there are no tickets', async () => {
-    mockFetch(Response.json({ tickets: [] }));
+    mockFetch(Response.json({ ...firstPage, total: 0, tickets: [] }));
     renderPage();
 
     expect(await screen.findByRole('cell', { name: 'No tickets yet.' })).toBeInTheDocument();
@@ -171,5 +194,111 @@ describe('TicketsPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       "Couldn't load tickets: Unauthorized",
     );
+  });
+
+  describe('pagination', () => {
+    it('shows the range and page count', async () => {
+      mockPagedApi(101);
+      renderPage();
+
+      await screen.findByRole('cell', { name: 'Ticket 1' });
+      const nav = screen.getByRole('navigation', { name: 'Pagination' });
+      expect(nav).toHaveTextContent('1–25 of 101');
+      expect(nav).toHaveTextContent('Page 1 of 5');
+      expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Next page' })).toBeEnabled();
+    });
+
+    it('asks the API for the next page', async () => {
+      const user = userEvent.setup();
+      const fetchSpy = mockPagedApi(101);
+      renderPage();
+      await screen.findByRole('cell', { name: 'Ticket 1' });
+
+      await user.click(screen.getByRole('button', { name: 'Next page' }));
+
+      expect(await screen.findByRole('cell', { name: 'Ticket 26' })).toBeInTheDocument();
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/tickets?sortBy=updatedAt&sortOrder=desc&page=2&pageSize=25',
+        expect.anything(),
+      );
+      expect(screen.getByRole('navigation', { name: 'Pagination' })).toHaveTextContent(
+        '26–50 of 101',
+      );
+    });
+
+    it('jumps to the last page, where Next is disabled', async () => {
+      const user = userEvent.setup();
+      mockPagedApi(101);
+      renderPage();
+      await screen.findByRole('cell', { name: 'Ticket 1' });
+
+      await user.click(screen.getByRole('button', { name: 'Last page' }));
+
+      expect(await screen.findByRole('cell', { name: 'Ticket 101' })).toBeInTheDocument();
+      expect(screen.getByRole('navigation', { name: 'Pagination' })).toHaveTextContent(
+        '101–101 of 101',
+      );
+      expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Last page' })).toBeDisabled();
+    });
+
+    it('asks for the first page with the new page size', async () => {
+      const user = userEvent.setup();
+      const fetchSpy = mockPagedApi(101);
+      renderPage();
+      await screen.findByRole('cell', { name: 'Ticket 1' });
+      await user.click(screen.getByRole('button', { name: 'Next page' }));
+      await screen.findByRole('cell', { name: 'Ticket 26' });
+
+      await user.click(screen.getByRole('combobox', { name: 'Rows per page' }));
+      await user.click(screen.getByRole('option', { name: '50' }));
+
+      await waitFor(() =>
+        expect(fetchSpy).toHaveBeenLastCalledWith(
+          '/api/tickets?sortBy=updatedAt&sortOrder=desc&page=1&pageSize=50',
+          expect.anything(),
+        ),
+      );
+      expect(await screen.findByRole('cell', { name: 'Ticket 50' })).toBeInTheDocument();
+    });
+
+    it('goes back to the first page when the sort changes', async () => {
+      const user = userEvent.setup();
+      const fetchSpy = mockPagedApi(101);
+      renderPage();
+      await screen.findByRole('cell', { name: 'Ticket 1' });
+      await user.click(screen.getByRole('button', { name: 'Next page' }));
+      await screen.findByRole('cell', { name: 'Ticket 26' });
+
+      await user.click(screen.getByRole('button', { name: 'Subject' }));
+
+      await waitFor(() =>
+        expect(fetchSpy).toHaveBeenLastCalledWith(
+          '/api/tickets?sortBy=subject&sortOrder=asc&page=1&pageSize=25',
+          expect.anything(),
+        ),
+      );
+    });
+
+    it('moves to the new last page when its page no longer exists', async () => {
+      const user = userEvent.setup();
+      let total = 101;
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input) => Promise.resolve(pagedResponse(input, total)));
+      renderPage();
+      await screen.findByRole('cell', { name: 'Ticket 1' });
+
+      // Tickets disappear between loading page 1 and asking for page 5
+      total = 60;
+      await user.click(screen.getByRole('button', { name: 'Last page' }));
+
+      expect(await screen.findByRole('cell', { name: 'Ticket 60' })).toBeInTheDocument();
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/tickets?sortBy=updatedAt&sortOrder=desc&page=3&pageSize=25',
+        expect.anything(),
+      );
+    });
   });
 });

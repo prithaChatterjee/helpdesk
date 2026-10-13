@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ticketCategorySchema, ticketStatusSchema } from './domain';
+import { pageInfoSchema, paginationQueryShape } from './pagination';
 import { type Sort, sortQuerySchema } from './sorting';
 
 /** A ticket row in the tickets list. */
@@ -15,7 +16,10 @@ export const ticketListItemSchema = z.object({
 });
 export type TicketListItem = z.infer<typeof ticketListItemSchema>;
 
-export const ticketListResponseSchema = z.object({ tickets: z.array(ticketListItemSchema) });
+/** One page of tickets, with the total across all pages. */
+export const ticketListResponseSchema = pageInfoSchema.extend({
+  tickets: z.array(ticketListItemSchema),
+});
 export type TicketListResponse = z.infer<typeof ticketListResponseSchema>;
 
 export const INBOUND_EMAIL_RESULTS = ['created', 'appended', 'duplicate', 'ignored'] as const;
@@ -45,6 +49,9 @@ export const DEFAULT_TICKET_SORT: Sort<TicketSortField> = {
   sortBy: 'updatedAt',
   sortOrder: 'desc',
 };
-/** `GET /api/tickets` query string. */
-export const ticketListQuerySchema = sortQuerySchema(TICKET_SORT_FIELDS, DEFAULT_TICKET_SORT);
+/** `GET /api/tickets` query string: sort and page. */
+export const ticketListQuerySchema = sortQuerySchema(
+  TICKET_SORT_FIELDS,
+  DEFAULT_TICKET_SORT,
+).extend(paginationQueryShape);
 export type TicketListQuery = z.infer<typeof ticketListQuerySchema>;

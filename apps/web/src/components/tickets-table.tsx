@@ -1,4 +1,5 @@
 import {
+  type Page,
   type Sort,
   TICKET_CATEGORY_LABELS,
   TICKET_STATUS_LABELS,
@@ -54,16 +55,33 @@ const ticketColumns: readonly DataTableColumn<TicketListItem, TicketSortField>[]
 ];
 
 interface TicketsTableProps {
+  /** One page of tickets */
   tickets: TicketListItem[];
   /** The order `tickets` came back in from the API */
   sort: Sort<TicketSortField>;
   onSortChange: (sort: Sort<TicketSortField>) => void;
-  /** A refetch (e.g. for a new sort) is in progress */
+  /** Which page `tickets` is */
+  page: Page;
+  /** Tickets on all pages together */
+  total: number;
+  onPageChange: (page: Page) => void;
+  /** A refetch (e.g. for a new sort or page) is in progress */
   busy?: boolean;
 }
 
-/** Tickets with their customer, status, category and last activity. Headers sort via the API. */
-export function TicketsTable({ tickets, sort, onSortChange, busy }: TicketsTableProps) {
+/**
+ * Tickets with their customer, status, category and last activity.
+ * Headers sort and the controls below page through the API.
+ */
+export function TicketsTable({
+  tickets,
+  sort,
+  onSortChange,
+  page,
+  total,
+  onPageChange,
+  busy,
+}: TicketsTableProps) {
   return (
     <DataTable
       columns={ticketColumns}
@@ -72,6 +90,9 @@ export function TicketsTable({ tickets, sort, onSortChange, busy }: TicketsTable
       emptyMessage="No tickets yet."
       sort={sort}
       onSortChange={onSortChange}
+      page={page}
+      total={total}
+      onPageChange={onPageChange}
       busy={busy}
     />
   );

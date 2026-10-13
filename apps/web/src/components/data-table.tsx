@@ -1,15 +1,33 @@
-import type { Sort } from '@helpdesk/shared';
+import { type Page, PAGE_SIZES, type PageSize, type Sort } from '@helpdesk/shared';
 import {
   type ColumnDef,
+  type PaginationState,
   type RowData,
+  rowPaginationFeature,
   rowSortingFeature,
   type SortingState,
   tableFeatures,
   type Updater,
   useTable,
 } from '@tanstack/react-table';
-import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
-import { type ReactNode, useMemo } from 'react';
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+} from 'lucide-react';
+import { type ReactNode, useId, useMemo } from 'react';
+import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -41,8 +59,9 @@ export interface DataTableColumn<T, TSortField extends string = string> {
   sortDescFirst?: boolean;
 }
 
-// Sorting is manual: the table only tracks which column is sorted; the API does the sorting.
-const features = tableFeatures({ rowSortingFeature });
+// Sorting and pagination are manual: the table only tracks which column is sorted and which page
+// is shown; the API sorts and pages, and `rows` is already the current page.
+const features = tableFeatures({ rowSortingFeature, rowPaginationFeature });
 
 const ariaSort = { asc: 'ascending', desc: 'descending' } as const;
 
@@ -61,9 +80,15 @@ interface DataTableProps<T, TSortField extends string> {
   onSortChange?: (sort: Sort<TSortField>) => void;
   /** Rows are being refetched (e.g. after a sort change): dims the table and sets `aria-busy`. */
   busy?: boolean;
+  /** The page `rows` is. With `total` and `onPageChange`, shows paging controls under the table. */
+  page?: Page;
+  /** Rows on all pages together, from the API */
+  total?: number;
+  /** Called with the new page or page size; refetch with it. */
+  onPageChange?: (page: Page) => void;
 }
 
-/** A table of `rows`, one cell per column, with headers that sort through the API. */
+/** A table of `rows`, one cell per column, with headers that sort and controls that page through the API. */
 export function DataTable<T extends RowData, TSortField extends string = string>({
   columns,
   rows,
@@ -72,6 +97,9 @@ export function DataTable<T extends RowData, TSortField extends string = string>
   sort,
   onSortChange,
   busy = false,
+  page,
+  total,
+  onPageChange,
 }: DataTableProps<T, TSortField>) {
   const columnsById = useMemo(
     () => new Map(columns.map((column) => [columnId(column), column])),
@@ -99,20 +127,88 @@ export function DataTable<T extends RowData, TSortField extends string = string>
     onSortChange({ sortBy: first.id as TSortField, sortOrder: first.desc ? 'desc' : 'asc' });
   }
 
+  // TanStack counts pages from 0, the API from 1
+  const pagination: PaginationState = {
+    pageIndex: (page?.page ?? 1) - 1,
+    pageSize: page?.pageSize ?? rows.length,
+  };
+
+  function handlePaginationChange(updater: Updater<PaginationState>) {
+    const next = typeof updater === 'function' ? updater(pagination) : updater;
+    if (!onPageChange) return;
+    const pageSize = next.pageSize as PageSize;
+    // A new page size starts over at the first page, since the old page number no longer fits
+    onPageChange({
+      page: pageSize === pagination.pageSize ? next.pageIndex + 1 : 1,
+      pageSize,
+    });
+  }
+
   const table = useTable({
     features,
     columns: columnDefs,
     data: rows as T[],
     getRowId: (row) => getRowKey(row),
-    state: { sorting },
+    state: { sorting, pagination },
     onSortingChange: handleSortingChange,
     manualSorting: true,
     enableSorting: onSortChange !== undefined,
     enableMultiSort: false,
     // A list always has a sort (the API's default otherwise), so clicks only flip direction
     enableSortingRemoval: false,
+    onPaginationChange: handlePaginationChange,
+    manualPagination: true,
+    rowCount: total ?? rows.length,
+    // The page only changes when the parent says so (it resets to page 1 on a new sort itself)
+    autoResetPageIndex: false,
   });
 
+  const paginated = page !== undefined && total !== undefined && onPageChange !== undefined;
+
+  return (
+    <div className="space-y-3">
+      <TableContent
+        table={table}
+        columnsById={columnsById}
+        rowCount={rows.length}
+        columnCount={columns.length}
+        emptyMessage={emptyMessage}
+        busy={busy}
+      />
+      {paginated && (
+        <DataTablePagination
+          page={page}
+          total={total}
+          pageCount={Math.max(table.getPageCount(), 1)}
+          canPrevious={table.getCanPreviousPage()}
+          canNext={table.getCanNextPage()}
+          onFirst={() => table.firstPage()}
+          onPrevious={() => table.previousPage()}
+          onNext={() => table.nextPage()}
+          onLast={() => table.lastPage()}
+          onPageSizeChange={(size) => table.setPageSize(size)}
+          busy={busy}
+        />
+      )}
+    </div>
+  );
+}
+
+function TableContent<T extends RowData, TSortField extends string>({
+  table,
+  columnsById,
+  rowCount,
+  columnCount,
+  emptyMessage,
+  busy,
+}: {
+  table: ReturnType<typeof useTable<typeof features, T>>;
+  columnsById: Map<string, DataTableColumn<T, TSortField>>;
+  rowCount: number;
+  columnCount: number;
+  emptyMessage: string;
+  busy: boolean;
+}) {
   return (
     <Table aria-busy={busy || undefined} className={cn(busy && 'opacity-60 transition-opacity')}>
       <TableHeader>
@@ -156,9 +252,9 @@ export function DataTable<T extends RowData, TSortField extends string = string>
         ))}
       </TableHeader>
       <TableBody>
-        {rows.length === 0 ? (
+        {rowCount === 0 ? (
           <TableRow>
-            <TableCell colSpan={columns.length} className="py-6 text-center text-muted-foreground">
+            <TableCell colSpan={columnCount} className="py-6 text-center text-muted-foreground">
               {emptyMessage}
             </TableCell>
           </TableRow>
@@ -175,6 +271,114 @@ export function DataTable<T extends RowData, TSortField extends string = string>
         )}
       </TableBody>
     </Table>
+  );
+}
+
+interface DataTablePaginationProps {
+  page: Page;
+  total: number;
+  pageCount: number;
+  canPrevious: boolean;
+  canNext: boolean;
+  onFirst: () => void;
+  onPrevious: () => void;
+  onNext: () => void;
+  onLast: () => void;
+  onPageSizeChange: (size: PageSize) => void;
+  busy: boolean;
+}
+
+/** "Rows per page" picker, the range shown, and first/previous/next/last page buttons. */
+function DataTablePagination({
+  page,
+  total,
+  pageCount,
+  canPrevious,
+  canNext,
+  onFirst,
+  onPrevious,
+  onNext,
+  onLast,
+  onPageSizeChange,
+  busy,
+}: DataTablePaginationProps) {
+  const pageSizeLabelId = useId();
+  const firstRow = total === 0 ? 0 : (page.page - 1) * page.pageSize + 1;
+  const lastRow = Math.min(page.page * page.pageSize, total);
+  // While a page loads, its buttons stay put but can't be clicked again
+  const disablePrevious = busy || !canPrevious;
+  const disableNext = busy || !canNext;
+
+  return (
+    <nav
+      aria-label="Pagination"
+      className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground"
+    >
+      <div className="flex items-center gap-2">
+        <span id={pageSizeLabelId}>Rows per page</span>
+        <Select
+          value={String(page.pageSize)}
+          onValueChange={(value) => onPageSizeChange(Number(value) as PageSize)}
+        >
+          <SelectTrigger size="sm" aria-labelledby={pageSizeLabelId} className="w-18">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PAGE_SIZES.map((size) => (
+              <SelectItem key={size} value={String(size)}>
+                {size}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex items-center gap-4">
+        <p aria-live="polite">
+          {firstRow}–{lastRow} of {total}
+        </p>
+        <p>
+          Page {page.page} of {pageCount}
+        </p>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="icon-sm"
+            aria-label="First page"
+            disabled={disablePrevious}
+            onClick={onFirst}
+          >
+            <ChevronsLeft />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            aria-label="Previous page"
+            disabled={disablePrevious}
+            onClick={onPrevious}
+          >
+            <ChevronLeft />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            aria-label="Next page"
+            disabled={disableNext}
+            onClick={onNext}
+          >
+            <ChevronRight />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            aria-label="Last page"
+            disabled={disableNext}
+            onClick={onLast}
+          >
+            <ChevronsRight />
+          </Button>
+        </div>
+      </div>
+    </nav>
   );
 }
 

@@ -98,7 +98,7 @@ Goal: incoming emails become tickets.
 
 Goal: Agents can find and read tickets.
 
-- [ ] 4.1 `GET /tickets` with server-side pagination — basic `GET /api/tickets` (latest 100 by last activity) and a Tickets page exist; pagination pending
+- [x] 4.1 `GET /tickets` with server-side pagination — `?page=&pageSize=` (10/25/50/100, default 25), response carries `total`; Tickets page has page-size picker and page buttons
 - [ ] 4.2 Filters: status, category, date range, text search (subject, customer email)
 - [x] 4.3 Sorting: created date, last updated, status, category — server-side via `?sortBy=&sortOrder=` (also subject and customer); the Users table sorts the same way
 - [ ] 4.4 Database indexes for status, category, createdAt; PostgreSQL full-text search index
