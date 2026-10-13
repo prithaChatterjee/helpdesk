@@ -1,11 +1,29 @@
-import type { Prisma, PrismaClient } from '@helpdesk/db';
+import { Prisma, type PrismaClient } from '@helpdesk/db';
 import {
   type SortOrder,
+  type TicketDetailResponse,
   type TicketListResponse,
   ticketListQuerySchema,
   type TicketSortField,
+  type UpdateTicketResponse,
+  updateTicketSchema,
 } from '@helpdesk/shared';
 import { Router } from 'express';
+import { z } from 'zod';
+
+const TICKET_NOT_FOUND = 'Ticket not found';
+
+/** The fields of a ticket list row (`TicketListItem`). */
+const ticketListSelect = {
+  id: true,
+  subject: true,
+  status: true,
+  category: true,
+  customerEmail: true,
+  customerName: true,
+  createdAt: true,
+  updatedAt: true,
+} as const satisfies Prisma.TicketSelect;
 
 // Each sortable column's ORDER BY. Customer sorts by name, then email for tickets without one.
 const ticketOrderBy: Record<
@@ -38,16 +56,7 @@ export function ticketsRouter(prisma: PrismaClient) {
     const [tickets, total] = await prisma.$transaction(
       [
         prisma.ticket.findMany({
-          select: {
-            id: true,
-            subject: true,
-            status: true,
-            category: true,
-            customerEmail: true,
-            customerName: true,
-            createdAt: true,
-            updatedAt: true,
-          },
+          select: ticketListSelect,
           // id breaks ties, so equal values keep a stable order
           orderBy: [...ticketOrderBy[sortBy](sortOrder), { id: sortOrder }],
           skip: (page - 1) * pageSize,
@@ -67,6 +76,90 @@ export function ticketsRouter(prisma: PrismaClient) {
         createdAt: ticket.createdAt.toISOString(),
         updatedAt: ticket.updatedAt.toISOString(),
       })),
+    };
+    res.json(body);
+  });
+
+  // One ticket with its whole thread, oldest message first
+  router.get('/:id', async (req, res) => {
+    const id = req.params.id;
+    // Not a uuid can't match a ticket (and Postgres would reject it as a uuid column value)
+    if (!z.uuid().safeParse(id).success) {
+      res.status(404).json({ error: TICKET_NOT_FOUND });
+      return;
+    }
+    const ticket = await prisma.ticket.findUnique({
+      where: { id },
+      select: {
+        ...ticketListSelect,
+        summary: true,
+        messages: {
+          // Only the plain-text body: the client renders text, never stored HTML
+          select: {
+            id: true,
+            direction: true,
+            fromEmail: true,
+            fromName: true,
+            bodyText: true,
+            createdAt: true,
+          },
+          // id (uuid v7, time-ordered) breaks ties between messages stored in the same millisecond
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        },
+      },
+    });
+    if (!ticket) {
+      res.status(404).json({ error: TICKET_NOT_FOUND });
+      return;
+    }
+    const body: TicketDetailResponse = {
+      ticket: {
+        ...ticket,
+        createdAt: ticket.createdAt.toISOString(),
+        updatedAt: ticket.updatedAt.toISOString(),
+        messages: ticket.messages.map((message) => ({
+          ...message,
+          createdAt: message.createdAt.toISOString(),
+        })),
+      },
+    };
+    res.json(body);
+  });
+
+  // Changes the status and/or category, e.g. an Agent closing a ticket or correcting the AI
+  router.patch('/:id', async (req, res) => {
+    const id = req.params.id;
+    if (!z.uuid().safeParse(id).success) {
+      res.status(404).json({ error: TICKET_NOT_FOUND });
+      return;
+    }
+    const parsed = updateTicketSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid request' });
+      return;
+    }
+
+    let ticket;
+    try {
+      ticket = await prisma.ticket.update({
+        where: { id },
+        data: parsed.data,
+        select: ticketListSelect,
+      });
+    } catch (err) {
+      // No ticket with this id
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        res.status(404).json({ error: TICKET_NOT_FOUND });
+        return;
+      }
+      throw err;
+    }
+    const body: UpdateTicketResponse = {
+      ticket: {
+        ...ticket,
+        createdAt: ticket.createdAt.toISOString(),
+        updatedAt: ticket.updatedAt.toISOString(),
+      },
     };
     res.json(body);
   });

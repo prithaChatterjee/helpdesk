@@ -866,3 +866,218 @@ describe('GET /api/tickets', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('GET /api/tickets/:id', () => {
+  const ticketId = '0199a000-0000-7000-8000-0000000000a1';
+  const ticketRow = {
+    id: ticketId,
+    subject: "Can't log in",
+    status: 'OPEN',
+    category: 'TECHNICAL',
+    customerEmail: 'jane@customer.test',
+    customerName: 'Jane',
+    summary: null,
+    createdAt: new Date('2026-10-01T10:00:00.000Z'),
+    updatedAt: new Date('2026-10-02T10:00:00.000Z'),
+    messages: [
+      {
+        id: 'm1',
+        direction: 'INBOUND',
+        fromEmail: 'jane@customer.test',
+        fromName: 'Jane',
+        bodyText: 'I forgot my password',
+        createdAt: new Date('2026-10-01T10:00:00.000Z'),
+      },
+      {
+        id: 'm2',
+        direction: 'OUTBOUND',
+        fromEmail: 'support@helpdesk.test',
+        fromName: null,
+        bodyText: 'Here is a reset link',
+        createdAt: new Date('2026-10-02T10:00:00.000Z'),
+      },
+    ],
+  };
+
+  it('returns 401 without a session cookie', async () => {
+    const res = await request(app).get(`/api/tickets/${ticketId}`);
+    expect(res.status).toBe(401);
+  });
+
+  it.each(['ADMIN', 'AGENT'] as const)(
+    'returns the ticket with its messages for an %s',
+    async (role) => {
+      signInAs(role);
+      vi.spyOn(prisma.ticket, 'findUnique').mockResolvedValue(ticketRow as never);
+
+      const res = await request(app).get(`/api/tickets/${ticketId}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        ticket: {
+          id: ticketId,
+          subject: "Can't log in",
+          status: 'OPEN',
+          category: 'TECHNICAL',
+          customerEmail: 'jane@customer.test',
+          customerName: 'Jane',
+          summary: null,
+          createdAt: '2026-10-01T10:00:00.000Z',
+          updatedAt: '2026-10-02T10:00:00.000Z',
+          messages: [
+            {
+              id: 'm1',
+              direction: 'INBOUND',
+              fromEmail: 'jane@customer.test',
+              fromName: 'Jane',
+              bodyText: 'I forgot my password',
+              createdAt: '2026-10-01T10:00:00.000Z',
+            },
+            {
+              id: 'm2',
+              direction: 'OUTBOUND',
+              fromEmail: 'support@helpdesk.test',
+              fromName: null,
+              bodyText: 'Here is a reset link',
+              createdAt: '2026-10-02T10:00:00.000Z',
+            },
+          ],
+        },
+      });
+    },
+  );
+
+  it('fetches messages oldest first, without the HTML body', async () => {
+    signInAs('AGENT');
+    const findUnique = vi.spyOn(prisma.ticket, 'findUnique').mockResolvedValue(ticketRow as never);
+
+    await request(app).get(`/api/tickets/${ticketId}`);
+
+    const args = findUnique.mock.calls[0]?.[0];
+    expect(args?.where).toEqual({ id: ticketId });
+    const messages = args?.select?.messages;
+    expect(messages).toMatchObject({ orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+    expect(typeof messages === 'object' && messages.select).not.toHaveProperty('bodyHtml');
+  });
+
+  it('returns 404 for a ticket that does not exist', async () => {
+    signInAs('AGENT');
+    vi.spyOn(prisma.ticket, 'findUnique').mockResolvedValue(null);
+
+    const res = await request(app).get(`/api/tickets/${ticketId}`);
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Ticket not found' });
+  });
+
+  it('returns 404 without querying for an id that is not a uuid', async () => {
+    signInAs('AGENT');
+    const findUnique = vi.spyOn(prisma.ticket, 'findUnique');
+
+    const res = await request(app).get('/api/tickets/not-a-uuid');
+
+    expect(res.status).toBe(404);
+    expect(findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe('PATCH /api/tickets/:id', () => {
+  const ticketId = '0199a000-0000-7000-8000-0000000000a1';
+  const updatedRow = {
+    id: ticketId,
+    subject: "Can't log in",
+    status: 'RESOLVED',
+    category: 'TECHNICAL',
+    customerEmail: 'jane@customer.test',
+    customerName: 'Jane',
+    createdAt: new Date('2026-10-01T10:00:00.000Z'),
+    updatedAt: new Date('2026-10-03T10:00:00.000Z'),
+  };
+
+  it('returns 401 without a session cookie', async () => {
+    const res = await request(app).patch(`/api/tickets/${ticketId}`).send({ status: 'RESOLVED' });
+    expect(res.status).toBe(401);
+  });
+
+  it.each(['ADMIN', 'AGENT'] as const)(
+    'changes the status and category for an %s',
+    async (role) => {
+      signInAs(role);
+      const update = vi.spyOn(prisma.ticket, 'update').mockResolvedValue(updatedRow as never);
+
+      const res = await request(app)
+        .patch(`/api/tickets/${ticketId}`)
+        .send({ status: 'RESOLVED', category: 'TECHNICAL' });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        ticket: {
+          id: ticketId,
+          subject: "Can't log in",
+          status: 'RESOLVED',
+          category: 'TECHNICAL',
+          customerEmail: 'jane@customer.test',
+          customerName: 'Jane',
+          createdAt: '2026-10-01T10:00:00.000Z',
+          updatedAt: '2026-10-03T10:00:00.000Z',
+        },
+      });
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: ticketId },
+          data: { status: 'RESOLVED', category: 'TECHNICAL' },
+        }),
+      );
+    },
+  );
+
+  it('changes only the fields that are sent', async () => {
+    signInAs('AGENT');
+    const update = vi.spyOn(prisma.ticket, 'update').mockResolvedValue(updatedRow as never);
+
+    await request(app).patch(`/api/tickets/${ticketId}`).send({ category: 'REFUND' });
+
+    expect(update.mock.calls[0]?.[0]?.data).toEqual({ category: 'REFUND' });
+  });
+
+  it.each([
+    [{}, 'Nothing to update'],
+    [{ status: 'PENDING' }, undefined],
+    [{ category: null }, undefined],
+    [{ subject: 'Changed' }, undefined],
+  ])('returns 400 for %o', async (body, error) => {
+    signInAs('AGENT');
+    const update = vi.spyOn(prisma.ticket, 'update');
+
+    const res = await request(app).patch(`/api/tickets/${ticketId}`).send(body);
+
+    expect(res.status).toBe(400);
+    if (error) expect(res.body).toEqual({ error });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for a ticket that does not exist', async () => {
+    signInAs('AGENT');
+    vi.spyOn(prisma.ticket, 'update').mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('Record not found', {
+        code: 'P2025',
+        clientVersion: 'test',
+      }),
+    );
+
+    const res = await request(app).patch(`/api/tickets/${ticketId}`).send({ status: 'CLOSED' });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Ticket not found' });
+  });
+
+  it('returns 404 without querying for an id that is not a uuid', async () => {
+    signInAs('AGENT');
+    const update = vi.spyOn(prisma.ticket, 'update');
+
+    const res = await request(app).patch('/api/tickets/not-a-uuid').send({ status: 'CLOSED' });
+
+    expect(res.status).toBe(404);
+    expect(update).not.toHaveBeenCalled();
+  });
+});

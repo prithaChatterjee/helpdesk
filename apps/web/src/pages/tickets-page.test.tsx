@@ -2,6 +2,7 @@ import type { TicketListResponse } from '@helpdesk/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TicketsPage } from './tickets-page';
 
@@ -55,7 +56,10 @@ function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <TicketsPage />
+      {/* Subjects link to the ticket's page */}
+      <MemoryRouter>
+        <TicketsPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -200,6 +204,16 @@ describe('TicketsPage', () => {
     expect(refund.getByRole('cell', { name: 'bob@customer.test' })).toBeInTheDocument();
     expect(refund.getByText('Resolved')).toBeInTheDocument();
     expect(refund.getByRole('cell', { name: 'Refund request' })).toBeInTheDocument();
+  });
+
+  it("links each subject to the ticket's page", async () => {
+    mockFetch(Response.json(firstPage));
+    renderPage();
+
+    expect(await screen.findByRole('link', { name: "Can't log in" })).toHaveAttribute(
+      'href',
+      '/tickets/1',
+    );
   });
 
   it('says so when there are no tickets', async () => {

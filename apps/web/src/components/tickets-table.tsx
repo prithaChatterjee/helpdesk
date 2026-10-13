@@ -2,24 +2,23 @@ import {
   type Page,
   type Sort,
   TICKET_CATEGORY_LABELS,
-  TICKET_STATUS_LABELS,
   type TicketListItem,
   type TicketSortField,
-  TicketStatus,
 } from '@helpdesk/shared';
+import { Link } from 'react-router';
 import { DataTable, type DataTableColumn, DataTableSkeleton } from '@/components/data-table';
-import { Badge } from '@/components/ui/badge';
-
-const dateTimeFormat = new Intl.DateTimeFormat(undefined, {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-});
+import { TicketStatusBadge } from '@/components/ticket-status-badge';
+import { dateTimeFormat } from '@/lib/format';
 
 const ticketColumns: readonly DataTableColumn<TicketListItem, TicketSortField>[] = [
   {
     header: 'Subject',
     sortField: 'subject',
-    cell: (ticket) => ticket.subject,
+    cell: (ticket) => (
+      <Link to={`/tickets/${ticket.id}`} className="hover:underline">
+        {ticket.subject}
+      </Link>
+    ),
     className: 'max-w-80 truncate font-medium',
     skeletonClassName: 'h-4 w-56',
   },
@@ -32,11 +31,7 @@ const ticketColumns: readonly DataTableColumn<TicketListItem, TicketSortField>[]
   {
     header: 'Status',
     sortField: 'status',
-    cell: (ticket) => (
-      <Badge variant={ticket.status === TicketStatus.OPEN ? 'default' : 'secondary'}>
-        {TICKET_STATUS_LABELS[ticket.status]}
-      </Badge>
-    ),
+    cell: (ticket) => <TicketStatusBadge status={ticket.status} />,
     skeletonClassName: 'h-5 w-16 rounded-full',
   },
   {
