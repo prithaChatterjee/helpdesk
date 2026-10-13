@@ -50,6 +50,16 @@ const ticketColumns: readonly DataTableColumn<TicketListRow, TicketSortField>[] 
     skeletonClassName: 'h-4 w-28',
   },
   {
+    header: 'Assignee',
+    cell: (ticket) =>
+      ticket.assignee ? (
+        ticket.assignee.name
+      ) : (
+        <span className="text-muted-foreground">Unassigned</span>
+      ),
+    skeletonClassName: 'h-4 w-24',
+  },
+  {
     header: 'Updated',
     sortField: 'updatedAt',
     sortDescFirst: true,
@@ -61,6 +71,8 @@ const ticketColumns: readonly DataTableColumn<TicketListRow, TicketSortField>[] 
 interface TicketsTableProps {
   /** One page of tickets */
   tickets: TicketListRow[];
+  /** Shown when `tickets` is empty */
+  emptyMessage?: string;
   /** The order `tickets` came back in from the API; `undefined` for the API's default order */
   sort: Sort<TicketSortField> | undefined;
   onSortChange: (sort: Sort<TicketSortField> | undefined) => void;
@@ -74,11 +86,12 @@ interface TicketsTableProps {
 }
 
 /**
- * Tickets with their customer, status, category and last activity.
+ * Tickets with their customer, status, category, assignee and last activity.
  * Headers sort and the controls below page through the API.
  */
 export function TicketsTable({
   tickets,
+  emptyMessage = 'No tickets yet.',
   sort,
   onSortChange,
   page,
@@ -91,7 +104,7 @@ export function TicketsTable({
       columns={ticketColumns}
       rows={tickets}
       getRowKey={(ticket) => ticket.id}
-      emptyMessage="No tickets yet."
+      emptyMessage={emptyMessage}
       sort={sort}
       onSortChange={onSortChange}
       page={page}

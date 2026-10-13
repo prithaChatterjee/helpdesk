@@ -20,21 +20,23 @@ enum UserRole {
 }
 
 model User {
-  id            String    @id @default(uuid(7)) @db.Uuid
-  name          String
-  email         String    @unique
-  emailVerified Boolean   @default(false)
-  image         String?
-  role          UserRole  @default(AGENT)
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+  id              String    @id @default(uuid(7)) @db.Uuid
+  name            String
+  email           String    @unique
+  emailVerified   Boolean   @default(false)
+  image           String?
+  role            UserRole  @default(AGENT)
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
   // Soft delete: set when an Admin deletes the user (who is also deactivated). Deleted users are
   // hidden from the API but keep their row, so the email stays taken and history stays linked.
-  deletedAt     DateTime? @db.Timestamptz(3)
-  sessions      Session[]
-  accounts      Account[]
-  sentMessages  Message[]
+  deletedAt       DateTime? @db.Timestamptz(3)
+  sessions        Session[]
+  accounts        Account[]
+  sentMessages    Message[]
+  /// Tickets this user is working on; unassigned when the user is deleted
+  assignedTickets Ticket[]
 
   @@map("users")
 }
@@ -119,6 +121,9 @@ model Ticket {
   customerEmail String
   customerName  String?
   summary       String?
+  /// The Admin or Agent working on the ticket; empty while unassigned
+  assignedToId  String?         @db.Uuid
+  assignedTo    User?           @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
   createdAt     DateTime        @default(now()) @db.Timestamptz(3)
   /// Bumped whenever a message is added, so the list can sort by latest activity
   updatedAt     DateTime        @updatedAt @db.Timestamptz(3)
@@ -128,6 +133,7 @@ model Ticket {
   @@index([createdAt])
   @@index([updatedAt])
   @@index([customerEmail])
+  @@index([assignedToId])
   @@map("tickets")
 }
 

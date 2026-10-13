@@ -32,10 +32,21 @@ export function sortSearchParams(sort: Sort<string>): string {
 
 /**
  * The query string for a list request, with the leading `?`, or `''` when there is nothing to send.
- * Without a sort the API uses the list's default order.
+ * Filters without a value are left out. Without a sort the API uses the list's default order.
  */
-export function listQueryString({ sort, page }: { sort?: Sort<string>; page?: Page }): string {
+export function listQueryString({
+  filters,
+  sort,
+  page,
+}: {
+  filters?: Record<string, string | undefined>;
+  sort?: Sort<string>;
+  page?: Page;
+}): string {
   const params = new URLSearchParams();
+  for (const [name, value] of Object.entries(filters ?? {})) {
+    if (value) params.set(name, value);
+  }
   if (sort) {
     params.set('sortBy', sort.sortBy);
     params.set('sortOrder', sort.sortOrder);

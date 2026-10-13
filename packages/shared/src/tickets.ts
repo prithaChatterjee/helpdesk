@@ -1,7 +1,24 @@
 import { z } from 'zod';
-import { messageDirectionSchema, ticketCategorySchema, ticketStatusSchema } from './domain';
+import {
+  messageDirectionSchema,
+  type TicketCategory,
+  ticketCategorySchema,
+  type TicketStatus,
+  ticketStatusSchema,
+} from './domain';
 import { pageInfoSchema, paginationQueryShape } from './pagination';
 import { type Sort, sortQuerySchema } from './sorting';
+
+/** A user a ticket can be assigned to: an active Admin or Agent. */
+export const ticketAssigneeSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+});
+export type TicketAssignee = z.infer<typeof ticketAssigneeSchema>;
+
+/** `GET /api/assignees`: everyone a ticket can be assigned to, by name. */
+export const assigneeListResponseSchema = z.object({ assignees: z.array(ticketAssigneeSchema) });
+export type AssigneeListResponse = z.infer<typeof assigneeListResponseSchema>;
 
 /** A ticket row in the tickets list. */
 export const ticketListItemSchema = z.object({
@@ -11,6 +28,8 @@ export const ticketListItemSchema = z.object({
   category: ticketCategorySchema.nullable(),
   customerEmail: z.string(),
   customerName: z.string().nullable(),
+  /** Who is working on the ticket; `null` while unassigned */
+  assignee: ticketAssigneeSchema.nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
@@ -50,17 +69,22 @@ export type TicketDetailResponse = z.infer<typeof ticketDetailResponseSchema>;
 export type TicketDetail = TicketDetailResponse['ticket'];
 
 /**
- * `PATCH /api/tickets/:id` body: a new status, category, or both. A category can be changed but
- * not cleared (only a ticket that was never classified has none).
+ * `PATCH /api/tickets/:id` body: a new status, category and/or assignee. A category can be changed
+ * but not cleared (only a ticket that was never classified has none); `assigneeId: null` unassigns.
  */
 export const updateTicketSchema = z
   .strictObject({
     status: ticketStatusSchema.optional(),
     category: ticketCategorySchema.optional(),
+    assigneeId: z.uuid({ error: 'Unknown assignee' }).nullable().optional(),
   })
-  .refine((changes) => changes.status !== undefined || changes.category !== undefined, {
-    message: 'Nothing to update',
-  });
+  .refine(
+    (changes) =>
+      changes.status !== undefined ||
+      changes.category !== undefined ||
+      changes.assigneeId !== undefined,
+    { message: 'Nothing to update' },
+  );
 export type UpdateTicketInput = z.infer<typeof updateTicketSchema>;
 
 /** The ticket after `PATCH /api/tickets/:id`. */
@@ -114,9 +138,44 @@ export const DEFAULT_TICKET_SORT: Sort<TicketSortField> = {
   sortBy: 'updatedAt',
   sortOrder: 'desc',
 };
-/** `GET /api/tickets` query string: sort and page. */
-export const ticketListQuerySchema = sortQuerySchema(
-  TICKET_SORT_FIELDS,
-  DEFAULT_TICKET_SORT,
-).extend(paginationQueryShape);
+/** Longest text the tickets list can be searched for, in characters */
+export const TICKET_SEARCH_MAX_LENGTH = 200;
+
+/** Which tickets the list shows. Every filter is optional; together they must all match. */
+/** `?assignee=` values: the signed-in user's tickets, or tickets nobody is assigned to. */
+export const TICKET_ASSIGNEE_FILTERS = ['me', 'unassigned'] as const;
+export type TicketAssigneeFilter = (typeof TICKET_ASSIGNEE_FILTERS)[number];
+
+// A type, not an interface, so it fits `listQueryString`'s `filters` record
+export type TicketFilters = {
+  status?: TicketStatus;
+  category?: TicketCategory;
+  assignee?: TicketAssigneeFilter;
+  /** Part of the subject, customer email or customer name, any case */
+  search?: string;
+};
+
+/** Whether any filter is set. */
+export function hasTicketFilters({ status, category, assignee, search }: TicketFilters) {
+  return Boolean(status || category || assignee || search);
+}
+
+/** Query-string fields that filter the tickets list (`?status=&category=&assignee=&search=`). */
+export const ticketFilterQueryShape = {
+  status: ticketStatusSchema.optional(),
+  category: ticketCategorySchema.optional(),
+  assignee: z.enum(TICKET_ASSIGNEE_FILTERS).optional(),
+  search: z
+    .string({ error: 'Search must be text' })
+    .trim()
+    .max(TICKET_SEARCH_MAX_LENGTH, `Keep the search under ${TICKET_SEARCH_MAX_LENGTH} characters`)
+    // Blank means no search
+    .transform((search) => search || undefined)
+    .optional(),
+};
+
+/** `GET /api/tickets` query string: filters, sort and page. */
+export const ticketListQuerySchema = sortQuerySchema(TICKET_SORT_FIELDS, DEFAULT_TICKET_SORT)
+  .extend(ticketFilterQueryShape)
+  .extend(paginationQueryShape);
 export type TicketListQuery = z.infer<typeof ticketListQuerySchema>;

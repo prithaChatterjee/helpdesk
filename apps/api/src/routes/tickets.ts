@@ -5,6 +5,7 @@ import {
   MessageDirection,
   type SortOrder,
   type TicketDetailResponse,
+  type TicketFilters,
   type TicketListResponse,
   ticketListQuerySchema,
   type TicketSortField,
@@ -13,6 +14,7 @@ import {
 } from '@helpdesk/shared';
 import { Router } from 'express';
 import { z } from 'zod';
+import { escapeLikePattern } from '../like-pattern';
 
 const TICKET_NOT_FOUND = 'Ticket not found';
 
@@ -24,9 +26,22 @@ const ticketListSelect = {
   category: true,
   customerEmail: true,
   customerName: true,
+  assignedTo: { select: { id: true, name: true } },
   createdAt: true,
   updatedAt: true,
 } as const satisfies Prisma.TicketSelect;
+
+type TicketListFields = Prisma.TicketGetPayload<{ select: typeof ticketListSelect }>;
+
+/** A selected ticket as the API sends it: `assignee` and ISO dates. */
+function toTicketListItem<T extends TicketListFields>({ assignedTo, ...ticket }: T) {
+  return {
+    ...ticket,
+    assignee: assignedTo,
+    createdAt: ticket.createdAt.toISOString(),
+    updatedAt: ticket.updatedAt.toISOString(),
+  };
+}
 
 // Each sortable column's ORDER BY. Customer sorts by name, then email for tickets without one.
 const ticketOrderBy: Record<
@@ -41,31 +56,49 @@ const ticketOrderBy: Record<
   updatedAt: (order) => [{ updatedAt: order }],
 };
 
+/** The WHERE for the list's filters; every given filter must match. `userId` is who "me" is. */
+function ticketListWhere(
+  { status, category, assignee, search }: TicketFilters,
+  userId: string,
+): Prisma.TicketWhereInput {
+  const contains = search && { contains: escapeLikePattern(search), mode: 'insensitive' as const };
+  return {
+    status,
+    category,
+    ...(assignee && { assignedToId: assignee === 'me' ? userId : null }),
+    ...(contains && {
+      OR: [{ subject: contains }, { customerEmail: contains }, { customerName: contains }],
+    }),
+  };
+}
+
 /** Tickets for Admins and Agents. Mount behind `requireAuth`. */
 export function ticketsRouter(prisma: PrismaClient) {
   const router = Router();
 
-  // One page (`?page=&pageSize=`, default the first 25), sorted by `?sortBy=&sortOrder=`
-  // (default most recent activity first)
+  // One page (`?page=&pageSize=`, default the first 25) of the tickets matching
+  // `?status=&category=&assignee=&search=`, sorted by `?sortBy=&sortOrder=` (default most recent activity first)
   router.get('/', async (req, res) => {
     const query = ticketListQuerySchema.safeParse(req.query);
     if (!query.success) {
       res.status(400).json({ error: query.error.issues[0]?.message ?? 'Invalid request' });
       return;
     }
-    const { sortBy, sortOrder, page, pageSize } = query.data;
+    const { sortBy, sortOrder, page, pageSize, ...filters } = query.data;
+    const where = ticketListWhere(filters, res.locals.user.id);
 
     // Repeatable read: both queries see the same snapshot, so the total matches the page
     const [tickets, total] = await prisma.$transaction(
       [
         prisma.ticket.findMany({
+          where,
           select: { ...ticketListSelect, _count: { select: { messages: true } } },
           // id breaks ties, so equal values keep a stable order
           orderBy: [...ticketOrderBy[sortBy](sortOrder), { id: sortOrder }],
           skip: (page - 1) * pageSize,
           take: pageSize,
         }),
-        prisma.ticket.count(),
+        prisma.ticket.count({ where }),
       ],
       { isolationLevel: 'RepeatableRead' },
     );
@@ -75,11 +108,9 @@ export function ticketsRouter(prisma: PrismaClient) {
       page,
       pageSize,
       tickets: tickets.map(({ _count, ...ticket }) => ({
-        ...ticket,
+        ...toTicketListItem(ticket),
         // Every message after the customer's first email: their follow-ups and Agent replies
         replyCount: Math.max(_count.messages - 1, 0),
-        createdAt: ticket.createdAt.toISOString(),
-        updatedAt: ticket.updatedAt.toISOString(),
       })),
     };
     res.json(body);
@@ -119,9 +150,7 @@ export function ticketsRouter(prisma: PrismaClient) {
     }
     const body: TicketDetailResponse = {
       ticket: {
-        ...ticket,
-        createdAt: ticket.createdAt.toISOString(),
-        updatedAt: ticket.updatedAt.toISOString(),
+        ...toTicketListItem(ticket),
         messages: ticket.messages.map((message) => ({
           ...message,
           createdAt: message.createdAt.toISOString(),
@@ -131,7 +160,8 @@ export function ticketsRouter(prisma: PrismaClient) {
     res.json(body);
   });
 
-  // Changes the status and/or category, e.g. an Agent closing a ticket or correcting the AI
+  // Changes the status, category and/or assignee, e.g. an Agent closing a ticket, correcting the AI
+  // or taking the ticket on
   router.patch('/:id', async (req, res) => {
     const id = req.params.id;
     if (!z.uuid().safeParse(id).success) {
@@ -144,12 +174,26 @@ export function ticketsRouter(prisma: PrismaClient) {
       return;
     }
 
+    const { assigneeId, ...fields } = parsed.data;
+
     let ticket;
     try {
-      ticket = await prisma.ticket.update({
-        where: { id },
-        data: parsed.data,
-        select: ticketListSelect,
+      ticket = await prisma.$transaction(async (tx) => {
+        if (assigneeId) {
+          // Only active, not deleted users. FOR SHARE makes a concurrent delete of this user wait
+          // until the assignment is saved, so the delete then unassigns it.
+          const assignees = await tx.$queryRaw<{ id: string }[]>`
+            SELECT id FROM users
+            WHERE id = ${assigneeId}::uuid AND "isActive" AND "deletedAt" IS NULL
+            FOR SHARE`;
+          if (assignees.length === 0) return null;
+        }
+        return tx.ticket.update({
+          where: { id },
+          // An undefined assignee is left as it is; null unassigns
+          data: { ...fields, assignedToId: assigneeId },
+          select: ticketListSelect,
+        });
       });
     } catch (err) {
       // No ticket with this id
@@ -159,13 +203,11 @@ export function ticketsRouter(prisma: PrismaClient) {
       }
       throw err;
     }
-    const body: UpdateTicketResponse = {
-      ticket: {
-        ...ticket,
-        createdAt: ticket.createdAt.toISOString(),
-        updatedAt: ticket.updatedAt.toISOString(),
-      },
-    };
+    if (!ticket) {
+      res.status(400).json({ error: 'Unknown assignee' });
+      return;
+    }
+    const body: UpdateTicketResponse = { ticket: toTicketListItem(ticket) };
     res.json(body);
   });
 

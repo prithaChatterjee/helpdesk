@@ -14,6 +14,7 @@ const tickets: TicketListResponse['tickets'] = [
     category: null,
     customerEmail: 'jane@customer.test',
     customerName: 'Jane Doe',
+    assignee: null,
     replyCount: 0,
     createdAt: '2026-10-01T10:00:00.000Z',
     updatedAt: '2026-10-02T10:00:00.000Z',
@@ -25,6 +26,7 @@ const tickets: TicketListResponse['tickets'] = [
     category: 'REFUND',
     customerEmail: 'bob@customer.test',
     customerName: null,
+    assignee: { id: 'u2', name: 'Sam Agent' },
     replyCount: 3,
     createdAt: '2026-09-20T08:30:00.000Z',
     updatedAt: '2026-09-21T08:30:00.000Z',
@@ -183,7 +185,7 @@ describe('TicketsPage', () => {
     );
   });
 
-  it('lists each ticket with customer, status, category and last update', async () => {
+  it('lists each ticket with customer, status, category, assignee and last update', async () => {
     mockFetch(Response.json(firstPage));
     renderPage();
 
@@ -198,6 +200,7 @@ describe('TicketsPage', () => {
     expect(open.getByRole('cell', { name: 'Jane Doe' })).toBeInTheDocument();
     expect(open.getByText('Open')).toBeInTheDocument();
     expect(open.getByRole('cell', { name: '—' })).toBeInTheDocument();
+    expect(open.getByRole('cell', { name: 'Unassigned' })).toBeInTheDocument();
     expect(
       open.getByRole('cell', { name: date.format(new Date(tickets[0]!.updatedAt)) }),
     ).toBeInTheDocument();
@@ -208,6 +211,7 @@ describe('TicketsPage', () => {
     expect(refund.getByRole('cell', { name: 'bob@customer.test' })).toBeInTheDocument();
     expect(refund.getByText('Resolved')).toBeInTheDocument();
     expect(refund.getByRole('cell', { name: 'Refund request' })).toBeInTheDocument();
+    expect(refund.getByRole('cell', { name: 'Sam Agent' })).toBeInTheDocument();
   });
 
   it('says "1 reply" for a single reply', async () => {
@@ -241,6 +245,114 @@ describe('TicketsPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       "Couldn't load tickets: Unauthorized",
     );
+  });
+
+  describe('filters', () => {
+    it('asks the API for the tickets with the chosen status and category', async () => {
+      const user = userEvent.setup();
+      const fetchSpy = mockPagedApi(2);
+      renderPage();
+      await screen.findByRole('link', { name: 'Ticket 1' });
+
+      await user.click(screen.getByRole('combobox', { name: 'Status' }));
+      await user.click(screen.getByRole('option', { name: 'Open' }));
+      await user.click(screen.getByRole('combobox', { name: 'Category' }));
+      await user.click(screen.getByRole('option', { name: 'Refund request' }));
+
+      await waitFor(() =>
+        expect(fetchSpy).toHaveBeenLastCalledWith(
+          '/api/tickets?status=OPEN&category=REFUND&page=1&pageSize=25',
+          expect.anything(),
+        ),
+      );
+    });
+
+    it("asks the API for the signed-in user's tickets", async () => {
+      const user = userEvent.setup();
+      const fetchSpy = mockPagedApi(2);
+      renderPage();
+      await screen.findByRole('link', { name: 'Ticket 1' });
+
+      await user.click(screen.getByRole('combobox', { name: 'Assignee' }));
+      await user.click(screen.getByRole('option', { name: 'Assigned to me' }));
+
+      await waitFor(() =>
+        expect(fetchSpy).toHaveBeenLastCalledWith(
+          '/api/tickets?assignee=me&page=1&pageSize=25',
+          expect.anything(),
+        ),
+      );
+    });
+
+    it('searches once typing pauses', async () => {
+      const user = userEvent.setup();
+      const fetchSpy = mockPagedApi(2);
+      renderPage();
+      await screen.findByRole('link', { name: 'Ticket 1' });
+
+      await user.type(screen.getByRole('searchbox', { name: 'Search tickets' }), 'jane@');
+
+      await waitFor(() =>
+        expect(fetchSpy).toHaveBeenLastCalledWith(
+          '/api/tickets?search=jane%40&page=1&pageSize=25',
+          expect.anything(),
+        ),
+      );
+      // The first load and the search, nothing per keystroke
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('goes back to the first page, keeping the sort', async () => {
+      const user = userEvent.setup();
+      const fetchSpy = mockPagedApi(101);
+      renderPage();
+      await screen.findByRole('link', { name: 'Ticket 1' });
+      await user.click(screen.getByRole('button', { name: 'Subject' }));
+      await user.click(screen.getByRole('button', { name: 'Next page' }));
+      await screen.findByRole('link', { name: 'Ticket 26' });
+
+      await user.click(screen.getByRole('combobox', { name: 'Status' }));
+      await user.click(screen.getByRole('option', { name: 'Resolved' }));
+
+      await waitFor(() =>
+        expect(fetchSpy).toHaveBeenLastCalledWith(
+          '/api/tickets?status=RESOLVED&sortBy=subject&sortOrder=asc&page=1&pageSize=25',
+          expect.anything(),
+        ),
+      );
+    });
+
+    it('says so when no tickets match', async () => {
+      const user = userEvent.setup();
+      mockPagedApi(0);
+      renderPage();
+      await screen.findByRole('cell', { name: 'No tickets yet.' });
+
+      await user.click(screen.getByRole('combobox', { name: 'Status' }));
+      await user.click(screen.getByRole('option', { name: 'Closed' }));
+
+      expect(
+        await screen.findByRole('cell', { name: 'No tickets match these filters.' }),
+      ).toBeInTheDocument();
+    });
+
+    it('lists every ticket again after clearing the filters', async () => {
+      const user = userEvent.setup();
+      const fetchSpy = mockPagedApi(2);
+      renderPage();
+      await screen.findByRole('link', { name: 'Ticket 1' });
+      await user.click(screen.getByRole('combobox', { name: 'Status' }));
+      await user.click(screen.getByRole('option', { name: 'Open' }));
+
+      await user.click(screen.getByRole('button', { name: 'Clear filters' }));
+
+      await waitFor(() =>
+        expect(fetchSpy).toHaveBeenLastCalledWith(
+          '/api/tickets?page=1&pageSize=25',
+          expect.anything(),
+        ),
+      );
+    });
   });
 
   describe('pagination', () => {

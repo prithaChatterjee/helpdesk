@@ -8,11 +8,15 @@ import { TicketFieldsEditor } from './ticket-fields-editor';
 
 const ticketId = '0199a000-0000-7000-8000-0000000000a1';
 
-const ticket: Pick<TicketListItem, 'id' | 'status' | 'category'> = {
+const ticket: Pick<TicketListItem, 'id' | 'status' | 'category' | 'assignee'> = {
   id: ticketId,
   status: 'OPEN',
   category: null,
+  assignee: null,
 };
+
+const sam = { id: '0199a000-0000-7000-8000-000000000002', name: 'Sam Agent' };
+const ann = { id: '0199a000-0000-7000-8000-000000000003', name: 'Ann Admin' };
 
 function renderEditor(props = ticket) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -28,13 +32,22 @@ function renderEditor(props = ticket) {
   return { invalidate };
 }
 
-function mockFetch(response: Response | Promise<Response>) {
-  return vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(response));
+/** Stubs fetch: `/api/assignees` lists Ann and Sam (or `assignees`), the PATCH gets `response`. */
+function mockFetch(
+  response: Response | Promise<Response>,
+  assignees: () => Response | Promise<Response> = () => Response.json({ assignees: [ann, sam] }),
+) {
+  return vi
+    .spyOn(globalThis, 'fetch')
+    .mockImplementation((input) =>
+      Promise.resolve(String(input) === '/api/assignees' ? assignees() : response),
+    );
 }
 
-/** The JSON body of the fetch call. */
+/** The JSON body of the PATCH request. */
 function sentBody(fetchSpy: ReturnType<typeof mockFetch>) {
-  return JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as unknown;
+  const patch = fetchSpy.mock.calls.find(([, init]) => init?.method === 'PATCH');
+  return JSON.parse(String(patch?.[1]?.body)) as unknown;
 }
 
 afterEach(() => {
@@ -43,6 +56,7 @@ afterEach(() => {
 
 describe('TicketFieldsEditor', () => {
   it('shows the current status, and a placeholder for an unclassified ticket', () => {
+    mockFetch(new Promise<Response>(() => {}));
     renderEditor();
 
     expect(screen.getByRole('combobox', { name: 'Status' })).toHaveTextContent('Open');
@@ -50,6 +64,7 @@ describe('TicketFieldsEditor', () => {
   });
 
   it('shows the current category', () => {
+    mockFetch(new Promise<Response>(() => {}));
     renderEditor({ ...ticket, category: 'REFUND' });
 
     expect(screen.getByRole('combobox', { name: 'Category' })).toHaveTextContent('Refund request');
@@ -114,5 +129,95 @@ describe('TicketFieldsEditor', () => {
       expect(screen.getByRole('combobox', { name: 'Status' })).toHaveTextContent('Open'),
     );
     expect(screen.getByRole('combobox', { name: 'Status' })).toBeEnabled();
+  });
+
+  describe('assignee', () => {
+    it('shows "Unassigned" for a ticket nobody is assigned to', async () => {
+      mockFetch(new Promise<Response>(() => {}));
+      renderEditor();
+
+      expect(screen.getByRole('combobox', { name: 'Assignee' })).toHaveTextContent('Unassigned');
+    });
+
+    it('shows the current assignee while the list loads, without letting it change yet', () => {
+      // The assignees never load
+      mockFetch(new Promise<Response>(() => {}), () => new Promise<Response>(() => {}));
+      renderEditor({ ...ticket, assignee: sam });
+
+      const assignee = screen.getByRole('combobox', { name: 'Assignee' });
+      expect(assignee).toHaveTextContent('Sam Agent');
+      expect(assignee).toBeDisabled();
+    });
+
+    it('offers everyone who can be assigned', async () => {
+      const user = userEvent.setup();
+      mockFetch(new Promise<Response>(() => {}));
+      renderEditor();
+      const assignee = screen.getByRole('combobox', { name: 'Assignee' });
+      await waitFor(() => expect(assignee).toBeEnabled());
+
+      await user.click(assignee);
+
+      expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+        'Unassigned',
+        'Ann Admin',
+        'Sam Agent',
+      ]);
+    });
+
+    it('assigns the ticket and confirms', async () => {
+      const user = userEvent.setup();
+      const fetchSpy = mockFetch(Response.json({ ticket: { ...ticket, assignee: sam } }));
+      const { invalidate } = renderEditor();
+      const assignee = screen.getByRole('combobox', { name: 'Assignee' });
+      await waitFor(() => expect(assignee).toBeEnabled());
+
+      await user.click(assignee);
+      await user.click(screen.getByRole('option', { name: 'Sam Agent' }));
+
+      expect(await screen.findByText('Assigned to Sam Agent')).toBeInTheDocument();
+      expect(sentBody(fetchSpy)).toEqual({ assigneeId: sam.id });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['tickets'] });
+    });
+
+    it('unassigns the ticket and confirms', async () => {
+      const user = userEvent.setup();
+      const fetchSpy = mockFetch(Response.json({ ticket }));
+      renderEditor({ ...ticket, assignee: sam });
+      const assignee = screen.getByRole('combobox', { name: 'Assignee' });
+      await waitFor(() => expect(assignee).toBeEnabled());
+
+      await user.click(assignee);
+      await user.click(screen.getByRole('option', { name: 'Unassigned' }));
+
+      expect(await screen.findByText('Unassigned', { selector: '[data-title]' })).toBeVisible();
+      expect(sentBody(fetchSpy)).toEqual({ assigneeId: null });
+    });
+
+    it('keeps showing an assignee who can no longer be picked', async () => {
+      const user = userEvent.setup();
+      mockFetch(new Promise<Response>(() => {}));
+      // Deactivated, so not in the list
+      const gone = { id: '0199a000-0000-7000-8000-000000000009', name: 'Former Agent' };
+      renderEditor({ ...ticket, assignee: gone });
+      const assignee = screen.getByRole('combobox', { name: 'Assignee' });
+      await waitFor(() => expect(assignee).toBeEnabled());
+
+      expect(assignee).toHaveTextContent('Former Agent');
+      await user.click(assignee);
+      expect(screen.getByRole('option', { name: 'Former Agent' })).toBeInTheDocument();
+    });
+
+    it('says so when the assignees fail to load', async () => {
+      mockFetch(new Promise<Response>(() => {}), () =>
+        Response.json({ error: 'Unauthorized' }, { status: 401 }),
+      );
+      renderEditor();
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        "Couldn't load assignees: Unauthorized",
+      );
+      expect(screen.getByRole('combobox', { name: 'Assignee' })).toBeDisabled();
+    });
   });
 });

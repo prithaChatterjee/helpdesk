@@ -187,8 +187,9 @@ export function usersRouter(auth: Auth, prisma: PrismaClient) {
     res.json(body);
   });
 
-  // Soft delete: the row stays (deactivated, `deletedAt` set) and the user is signed out everywhere.
-  // Admins can't be deleted, which also keeps an Admin from deleting themselves.
+  // Soft delete: the row stays (deactivated, `deletedAt` set), the user is signed out everywhere and
+  // their tickets go back to unassigned. Admins can't be deleted, which also keeps an Admin from
+  // deleting themselves.
   router.delete('/:id', async (req, res) => {
     const id = req.params.id;
     if (!z.uuid().safeParse(id).success) {
@@ -211,6 +212,8 @@ export function usersRouter(auth: Auth, prisma: PrismaClient) {
     await prisma.$transaction([
       prisma.user.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } }),
       prisma.session.deleteMany({ where: { userId: id } }),
+      // Raw SQL so `updatedAt` stays: losing an assignee isn't activity on the ticket
+      prisma.$executeRaw`UPDATE tickets SET "assignedToId" = NULL WHERE "assignedToId" = ${id}::uuid`,
     ]);
     res.status(204).end();
   });

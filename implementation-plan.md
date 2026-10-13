@@ -5,7 +5,7 @@ Based on `project-scope.md` and `tech-stack.md`. Each phase ends with something 
 ## Assumptions (until the open questions are answered)
 
 - **AI does not auto-send.** AI drafts a reply; an Agent reviews, edits, and sends. Auto-send can be added later per category.
-- **All Agents see all tickets.** No assignment or teams in the first release.
+- **All Agents see all tickets.** A ticket can be assigned (manually, from the ticket page) to one active Admin or Agent, or left unassigned; assignment doesn't restrict who can see or edit it. Deleting an Agent unassigns their tickets. No teams or automatic routing in the first release.
 - **Status meaning:** Open = needs attention; Resolved = reply sent; Closed = final (manual, or automatic after N days in Resolved). A customer reply on a Resolved ticket reopens it; on a Closed ticket it creates a new ticket.
 - **Category is nullable** until AI classifies it. Agents can change the category manually.
 - **Agents are deactivated, not deleted**, to keep ticket history.
@@ -109,6 +109,7 @@ Goal: Agents can find and read tickets.
 - [x] 4.9 Frontend: ticket detail page with conversation thread (inbound vs outbound styling)
 - [x] 4.10 Frontend: status and category dropdowns on detail page
 - [ ] 4.11 Empty, loading, and error states
+- [x] 4.12 Manual assignment: `PATCH /tickets/:id` `assigneeId` (active users only, `null` unassigns), `GET /assignees`, Assignee dropdown on the detail page, Assignee column and "Assigned to me"/"Unassigned" filter on the list; deleting an Agent unassigns their tickets
 
 **Done when:** an Agent can filter to "Open + Refund request", sort by newest, open a ticket, read the thread, and change its status.
 
@@ -208,7 +209,7 @@ Goal: the system is safe to run in production.
 ## Later (not in the first release)
 
 - AI auto-send for selected categories, once suggestion accuracy is proven
-- Ticket assignment to Agents, and teams/routing
+- Automatic assignment, teams and routing (manual assignment is in the first release)
 - Internal notes on tickets
 - Attachments (storage, virus scanning)
 - Knowledge base for AI answers (retrieval from FAQ / past tickets)

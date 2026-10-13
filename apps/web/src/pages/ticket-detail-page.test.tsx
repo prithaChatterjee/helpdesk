@@ -15,6 +15,7 @@ const detail: TicketDetailResponse = {
     category: 'TECHNICAL',
     customerEmail: 'jane@customer.test',
     customerName: 'Jane Doe',
+    assignee: null,
     summary: null,
     createdAt: '2026-10-01T10:00:00.000Z',
     updatedAt: '2026-10-02T10:00:00.000Z',

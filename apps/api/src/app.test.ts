@@ -522,6 +522,7 @@ describe('DELETE /api/users/:id', () => {
       deleteSessions: vi
         .spyOn(prisma.session, 'deleteMany')
         .mockResolvedValue({ count: 1 } as never),
+      unassignTickets: vi.spyOn(prisma, '$executeRaw').mockReturnValue(0 as never),
       transaction: vi.spyOn(prisma, '$transaction').mockResolvedValue([] as never),
     };
   }
@@ -558,6 +559,19 @@ describe('DELETE /api/users/:id', () => {
     });
     expect(deleteSessions).toHaveBeenCalledWith({ where: { userId: agentId } });
     expect(transaction).toHaveBeenCalledOnce();
+  });
+
+  it("unassigns the Agent's tickets in the same transaction, keeping their updatedAt", async () => {
+    signInAs('ADMIN');
+    const { unassignTickets, transaction } = stubDelete({ role: 'AGENT', deletedAt: null });
+    unassignTickets.mockReturnValue('unassign-query' as never);
+
+    await request(app).delete(`/api/users/${agentId}`);
+
+    const sql = (unassignTickets.mock.calls[0]?.[0] as unknown as string[]).join('?');
+    expect(sql).toBe('UPDATE tickets SET "assignedToId" = NULL WHERE "assignedToId" = ?::uuid');
+    expect(unassignTickets.mock.calls[0]?.[1]).toBe(agentId);
+    expect(transaction.mock.calls[0]?.[0]).toContain('unassign-query');
   });
 
   it('never removes the row', async () => {
@@ -723,6 +737,7 @@ describe('GET /api/tickets', () => {
     category: null,
     customerEmail: 'jane@customer.test',
     customerName: 'Jane',
+    assignedTo: { id: 'u2', name: 'Sam Agent' },
     createdAt,
     updatedAt,
     // The first email and two more messages
@@ -765,6 +780,7 @@ describe('GET /api/tickets', () => {
             category: null,
             customerEmail: 'jane@customer.test',
             customerName: 'Jane',
+            assignee: { id: 'u2', name: 'Sam Agent' },
             replyCount: 2,
             createdAt: '2026-10-01T10:00:00.000Z',
             updatedAt: '2026-10-02T10:00:00.000Z',
@@ -893,6 +909,105 @@ describe('GET /api/tickets', () => {
     const res = await request(app).get('/api/tickets').query({ sortOrder: 'sideways' });
     expect(res.status).toBe(400);
   });
+
+  describe('filters', () => {
+    it('lists every ticket without filters', async () => {
+      signInAs('AGENT');
+      const { findMany, count } = stubTicketPage();
+
+      await request(app).get('/api/tickets');
+
+      expect(findMany.mock.calls[0]?.[0]?.where).toEqual({});
+      expect(count).toHaveBeenCalledWith({ where: {} });
+    });
+
+    it('filters by status and category, counting only the matches', async () => {
+      signInAs('AGENT');
+      const { findMany, count } = stubTicketPage([ticketRow], 1);
+
+      const res = await request(app)
+        .get('/api/tickets')
+        .query({ status: 'OPEN', category: 'REFUND' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.total).toBe(1);
+      const where = { status: 'OPEN', category: 'REFUND' };
+      expect(findMany.mock.calls[0]?.[0]?.where).toEqual(where);
+      expect(count).toHaveBeenCalledWith({ where });
+    });
+
+    it('searches the subject, customer email and name, ignoring case', async () => {
+      signInAs('AGENT');
+      const { findMany, count } = stubTicketPage();
+
+      await request(app).get('/api/tickets').query({ search: '  Refund  ' });
+
+      const contains = { contains: 'Refund', mode: 'insensitive' };
+      const where = {
+        OR: [{ subject: contains }, { customerEmail: contains }, { customerName: contains }],
+      };
+      expect(findMany.mock.calls[0]?.[0]?.where).toEqual(where);
+      expect(count).toHaveBeenCalledWith({ where });
+    });
+
+    it('searches for % and _ literally', async () => {
+      signInAs('AGENT');
+      const { findMany } = stubTicketPage();
+
+      await request(app).get('/api/tickets').query({ search: '100%_off' });
+
+      expect(findMany.mock.calls[0]?.[0]?.where?.OR).toContainEqual({
+        subject: { contains: '100\\%\\_off', mode: 'insensitive' },
+      });
+    });
+
+    it("filters to the signed-in user's tickets", async () => {
+      signInAs('AGENT');
+      const { findMany } = stubTicketPage();
+
+      await request(app).get('/api/tickets').query({ assignee: 'me' });
+
+      expect(findMany.mock.calls[0]?.[0]?.where).toEqual({
+        assignedToId: '0199a000-0000-7000-8000-000000000001',
+      });
+    });
+
+    it('filters to unassigned tickets', async () => {
+      signInAs('AGENT');
+      const { findMany } = stubTicketPage();
+
+      await request(app).get('/api/tickets').query({ assignee: 'unassigned' });
+
+      expect(findMany.mock.calls[0]?.[0]?.where).toEqual({ assignedToId: null });
+    });
+
+    it('ignores a blank search', async () => {
+      signInAs('AGENT');
+      const { findMany } = stubTicketPage();
+
+      const res = await request(app).get('/api/tickets').query({ search: '   ' });
+
+      expect(res.status).toBe(200);
+      expect(findMany.mock.calls[0]?.[0]?.where).toEqual({});
+    });
+
+    it.each([
+      [{ status: 'PENDING' }],
+      [{ category: 'BILLING' }],
+      [{ assignee: '0199a000-0000-7000-8000-000000000002' }],
+      [{ search: 'x'.repeat(201) }],
+      [{ status: ['OPEN', 'CLOSED'] }],
+      [{ search: ['a', 'b'] }],
+    ])('returns 400 for %o', async (query) => {
+      signInAs('AGENT');
+      const { findMany } = stubTicketPage();
+
+      const res = await request(app).get('/api/tickets').query(query);
+
+      expect(res.status).toBe(400);
+      expect(findMany).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('GET /api/tickets/:id', () => {
@@ -905,6 +1020,7 @@ describe('GET /api/tickets/:id', () => {
     customerEmail: 'jane@customer.test',
     customerName: 'Jane',
     summary: null,
+    assignedTo: null,
     createdAt: new Date('2026-10-01T10:00:00.000Z'),
     updatedAt: new Date('2026-10-02T10:00:00.000Z'),
     messages: [
@@ -950,6 +1066,7 @@ describe('GET /api/tickets/:id', () => {
           customerEmail: 'jane@customer.test',
           customerName: 'Jane',
           summary: null,
+          assignee: null,
           createdAt: '2026-10-01T10:00:00.000Z',
           updatedAt: '2026-10-02T10:00:00.000Z',
           messages: [
@@ -1011,6 +1128,7 @@ describe('GET /api/tickets/:id', () => {
 
 describe('PATCH /api/tickets/:id', () => {
   const ticketId = '0199a000-0000-7000-8000-0000000000a1';
+  const assigneeId = '0199a000-0000-7000-8000-000000000002';
   const updatedRow = {
     id: ticketId,
     subject: "Can't log in",
@@ -1018,9 +1136,19 @@ describe('PATCH /api/tickets/:id', () => {
     category: 'TECHNICAL',
     customerEmail: 'jane@customer.test',
     customerName: 'Jane',
+    assignedTo: null,
     createdAt: new Date('2026-10-01T10:00:00.000Z'),
     updatedAt: new Date('2026-10-03T10:00:00.000Z'),
   };
+
+  /** Runs the callback transaction on `prisma`, with the ticket update and assignee lookup stubbed. */
+  function stubUpdate(row: unknown = updatedRow, assignees: { id: string }[] = []) {
+    vi.spyOn(prisma, '$transaction').mockImplementation(((fn: (tx: typeof prisma) => unknown) =>
+      fn(prisma)) as never);
+    const update = vi.spyOn(prisma.ticket, 'update').mockResolvedValue(row as never);
+    const findAssignee = vi.spyOn(prisma, '$queryRaw').mockResolvedValue(assignees as never);
+    return { update, findAssignee };
+  }
 
   it('returns 401 without a session cookie', async () => {
     const res = await request(app).patch(`/api/tickets/${ticketId}`).send({ status: 'RESOLVED' });
@@ -1031,7 +1159,7 @@ describe('PATCH /api/tickets/:id', () => {
     'changes the status and category for an %s',
     async (role) => {
       signInAs(role);
-      const update = vi.spyOn(prisma.ticket, 'update').mockResolvedValue(updatedRow as never);
+      const { update, findAssignee } = stubUpdate();
 
       const res = await request(app)
         .patch(`/api/tickets/${ticketId}`)
@@ -1046,6 +1174,7 @@ describe('PATCH /api/tickets/:id', () => {
           category: 'TECHNICAL',
           customerEmail: 'jane@customer.test',
           customerName: 'Jane',
+          assignee: null,
           createdAt: '2026-10-01T10:00:00.000Z',
           updatedAt: '2026-10-03T10:00:00.000Z',
         },
@@ -1053,19 +1182,70 @@ describe('PATCH /api/tickets/:id', () => {
       expect(update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: ticketId },
-          data: { status: 'RESOLVED', category: 'TECHNICAL' },
+          data: { status: 'RESOLVED', category: 'TECHNICAL', assignedToId: undefined },
         }),
       );
+      // No assignee to look up
+      expect(findAssignee).not.toHaveBeenCalled();
     },
   );
 
   it('changes only the fields that are sent', async () => {
     signInAs('AGENT');
-    const update = vi.spyOn(prisma.ticket, 'update').mockResolvedValue(updatedRow as never);
+    const { update } = stubUpdate();
 
     await request(app).patch(`/api/tickets/${ticketId}`).send({ category: 'REFUND' });
 
-    expect(update.mock.calls[0]?.[0]?.data).toEqual({ category: 'REFUND' });
+    // Prisma leaves undefined fields alone
+    expect(update.mock.calls[0]?.[0]?.data).toEqual({
+      category: 'REFUND',
+      assignedToId: undefined,
+    });
+  });
+
+  it('assigns the ticket to an active user', async () => {
+    signInAs('AGENT');
+    const { update, findAssignee } = stubUpdate(
+      { ...updatedRow, assignedTo: { id: assigneeId, name: 'Sam Agent' } },
+      [{ id: assigneeId }],
+    );
+
+    const res = await request(app).patch(`/api/tickets/${ticketId}`).send({ assigneeId });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ticket.assignee).toEqual({ id: assigneeId, name: 'Sam Agent' });
+    expect(res.body.ticket).not.toHaveProperty('assignedTo');
+    expect(update.mock.calls[0]?.[0]?.data).toEqual({ assignedToId: assigneeId });
+    // Locks the user row so a concurrent delete waits, then unassigns the ticket
+    const sql = (findAssignee.mock.calls[0]?.[0] as unknown as string[]).join('?');
+    expect(sql).toContain('"isActive"');
+    expect(sql).toContain('"deletedAt" IS NULL');
+    expect(sql).toContain('FOR SHARE');
+    expect(findAssignee.mock.calls[0]?.[1]).toBe(assigneeId);
+  });
+
+  it('returns 400 for an assignee who is not an active user', async () => {
+    signInAs('AGENT');
+    // A deleted, deactivated or unknown user is not found
+    const { update } = stubUpdate(updatedRow, []);
+
+    const res = await request(app).patch(`/api/tickets/${ticketId}`).send({ assigneeId });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Unknown assignee' });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('unassigns the ticket without looking anyone up', async () => {
+    signInAs('AGENT');
+    const { update, findAssignee } = stubUpdate();
+
+    const res = await request(app).patch(`/api/tickets/${ticketId}`).send({ assigneeId: null });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ticket.assignee).toBeNull();
+    expect(update.mock.calls[0]?.[0]?.data).toEqual({ assignedToId: null });
+    expect(findAssignee).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -1073,6 +1253,7 @@ describe('PATCH /api/tickets/:id', () => {
     [{ status: 'PENDING' }, undefined],
     [{ category: null }, undefined],
     [{ subject: 'Changed' }, undefined],
+    [{ assigneeId: 'sam' }, 'Unknown assignee'],
   ])('returns 400 for %o', async (body, error) => {
     signInAs('AGENT');
     const update = vi.spyOn(prisma.ticket, 'update');
@@ -1086,7 +1267,7 @@ describe('PATCH /api/tickets/:id', () => {
 
   it('returns 404 for a ticket that does not exist', async () => {
     signInAs('AGENT');
-    vi.spyOn(prisma.ticket, 'update').mockRejectedValue(
+    stubUpdate().update.mockRejectedValue(
       new Prisma.PrismaClientKnownRequestError('Record not found', {
         code: 'P2025',
         clientVersion: 'test',
@@ -1108,6 +1289,35 @@ describe('PATCH /api/tickets/:id', () => {
     expect(res.status).toBe(404);
     expect(update).not.toHaveBeenCalled();
   });
+});
+
+describe('GET /api/assignees', () => {
+  it('returns 401 without a session cookie', async () => {
+    const res = await request(app).get('/api/assignees');
+    expect(res.status).toBe(401);
+  });
+
+  it.each(['ADMIN', 'AGENT'] as const)(
+    'lists active users by name, with only ids and names, for an %s',
+    async (role) => {
+      signInAs(role);
+      const assignees = [
+        { id: 'u1', name: 'Ann Admin' },
+        { id: 'u2', name: 'Sam Agent' },
+      ];
+      const findMany = vi.spyOn(prisma.user, 'findMany').mockResolvedValue(assignees as never);
+
+      const res = await request(app).get('/api/assignees');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ assignees });
+      expect(findMany).toHaveBeenCalledWith({
+        where: { isActive: true, deletedAt: null },
+        select: { id: true, name: true },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      });
+    },
+  );
 });
 
 describe('POST /api/tickets/:id/replies', () => {

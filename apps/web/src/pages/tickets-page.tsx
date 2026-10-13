@@ -1,28 +1,33 @@
 import {
   FIRST_PAGE,
+  hasTicketFilters,
   listQueryString,
   type Page,
   type Sort,
+  type TicketFilters,
   type TicketListResponse,
   type TicketSortField,
 } from '@helpdesk/shared';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { TicketFiltersBar } from '@/components/tickets/ticket-filters';
 import { TicketsTable, TicketsTableSkeleton } from '@/components/tickets/tickets-table';
 import { LoadError } from '@/components/common/load-error';
 import { apiGet } from '@/lib/api';
 
 export function TicketsPage() {
+  const [filters, setFilters] = useState<TicketFilters>({});
   // No sort: the API's default order (most recent activity first)
   const [sort, setSort] = useState<Sort<TicketSortField>>();
   const [page, setPage] = useState<Page>(FIRST_PAGE);
   const { data, isPending, isPlaceholderData, error } = useQuery({
-    // Invalidating ['tickets'] also matches every sort and page
-    queryKey: ['tickets', sort, page],
-    // Sorted and paged by the API, never in the browser
-    queryFn: () => apiGet<TicketListResponse>(`/tickets${listQueryString({ sort, page })}`),
-    // Keep showing the current rows while another sort or page loads, instead of the skeleton
+    // Invalidating ['tickets'] also matches every filter, sort and page
+    queryKey: ['tickets', filters, sort, page],
+    // Filtered, sorted and paged by the API, never in the browser
+    queryFn: () =>
+      apiGet<TicketListResponse>(`/tickets${listQueryString({ filters, sort, page })}`),
+    // Keep showing the current rows while other filters, a sort or a page load, instead of the skeleton
     placeholderData: keepPreviousData,
   });
 
@@ -32,6 +37,13 @@ export function TicketsPage() {
   if (!isPlaceholderData && lastPage !== undefined && page.page > lastPage) {
     setPage({ ...page, page: lastPage });
   }
+
+  // Stable, so the search box's debounce isn't restarted by every render
+  const handleFiltersChange = useCallback((next: TicketFilters) => {
+    setFilters(next);
+    // Fewer matches may not reach the current page
+    setPage((current) => ({ ...current, page: 1 }));
+  }, []);
 
   function handleSortChange(next: Sort<TicketSortField> | undefined) {
     setSort(next);
@@ -45,7 +57,8 @@ export function TicketsPage() {
         <CardTitle>Tickets</CardTitle>
         <CardDescription>Support emails, most recent activity first.</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <TicketFiltersBar filters={filters} onChange={handleFiltersChange} />
         {isPending ? (
           <TicketsTableSkeleton />
         ) : error ? (
@@ -53,6 +66,9 @@ export function TicketsPage() {
         ) : (
           <TicketsTable
             tickets={data.tickets}
+            emptyMessage={
+              hasTicketFilters(filters) ? 'No tickets match these filters.' : 'No tickets yet.'
+            }
             sort={sort}
             onSortChange={handleSortChange}
             page={page}

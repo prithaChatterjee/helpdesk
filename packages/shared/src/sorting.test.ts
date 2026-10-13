@@ -59,6 +59,19 @@ describe('listQueryString', () => {
   it('is empty with neither sort nor page', () => {
     expect(listQueryString({})).toBe('');
   });
+
+  it('sends the filters first, leaving out empty ones', () => {
+    expect(
+      listQueryString({
+        filters: { status: 'OPEN', category: undefined, search: '' },
+        page: { page: 1, pageSize: 25 },
+      }),
+    ).toBe('?status=OPEN&page=1&pageSize=25');
+  });
+
+  it('encodes search text', () => {
+    expect(listQueryString({ filters: { search: 'a&b 100%' } })).toBe('?search=a%26b+100%25');
+  });
 });
 
 describe('list query defaults', () => {

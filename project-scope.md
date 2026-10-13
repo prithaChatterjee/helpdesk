@@ -66,7 +66,7 @@ The dashboard is visible to all roles (Admin and Agent).
 ### Roles
 
 - Can Agents see all tickets, or only tickets assigned to them?
-- Are tickets assigned to a specific Agent? Manually, automatically, or self-assigned?
+- ~~Are tickets assigned to a specific Agent?~~ Decided: optionally, manually from the ticket page (any Admin or Agent can assign anyone active, including themselves). Deleting an Agent unassigns their tickets. Automatic assignment is still open.
 - Does the Admin also work on tickets, or only manage users?
 - Can an Admin create other Admins? What prevents removing the last Admin?
 - How are the initial Admin's credentials set (environment variables, setup wizard, seed script)?
