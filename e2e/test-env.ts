@@ -8,6 +8,8 @@ export const E2E_API_PORT = 3001;
 export const E2E_WEB_PORT = 5174;
 export const E2E_API_URL = `http://localhost:${E2E_API_PORT}`;
 export const E2E_WEB_URL = `http://localhost:${E2E_WEB_PORT}`;
+// Bearer token for POST /api/webhooks/inbound-email
+export const E2E_INBOUND_EMAIL_SECRET = 'e2e-inbound-email-secret-not-for-production';
 
 // Seeded by scripts/reset-db.ts before the API starts. `name` is what the seed script derives
 // (Admins are "Admin", others the local part of the email).
@@ -35,4 +37,5 @@ export const apiEnv = {
   ADMIN_PASSWORD: TEST_USERS.admin.password,
   BETTER_AUTH_SECRET: 'e2e-test-secret-not-for-production-use-0000',
   BETTER_AUTH_URL: E2E_API_URL,
+  INBOUND_EMAIL_SECRET: E2E_INBOUND_EMAIL_SECRET,
 };

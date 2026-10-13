@@ -77,18 +77,18 @@ Goal: Admin can manage Agents.
 
 Goal: incoming emails become tickets.
 
-- [ ] 3.1 Prisma models: `Ticket` (id, subject, status `OPEN | RESOLVED | CLOSED`, category `GENERAL | TECHNICAL | REFUND` nullable, customerEmail, customerName, summary, timestamps) and `Message` (id, ticketId, direction `INBOUND | OUTBOUND`, fromEmail, bodyText, bodyHtml, emailMessageId, sentByUserId nullable, createdAt)
-- [ ] 3.2 Add shared Zod schemas and enums in `packages/shared`
-- [ ] 3.3 Set up Postmark inbound stream and a local tunnel for development (e.g. ngrok)
-- [ ] 3.4 `POST /webhooks/inbound-email`: verify webhook authenticity (basic auth or secret)
-- [ ] 3.5 Webhook stores the raw payload and enqueues an `ingest-email` job (respond quickly, process async)
-- [ ] 3.6 Worker `ingest-email`: parse sender, subject, plain text and HTML body
-- [ ] 3.7 Threading: match `In-Reply-To` / `References` headers to an existing ticket's message IDs; otherwise create a new ticket
-- [ ] 3.8 Reopen rule: reply on a Resolved ticket sets it back to Open; reply on a Closed ticket creates a new ticket
-- [ ] 3.9 Idempotency: ignore duplicate webhook deliveries (unique `emailMessageId`)
-- [ ] 3.10 Filter auto-replies and bounces (`Auto-Submitted` header, out-of-office patterns) so they don't create tickets
-- [ ] 3.11 Sanitize HTML email bodies before storage/display
-- [ ] 3.12 Tests with sample email payloads (new ticket, reply, duplicate, auto-reply)
+- [x] 3.1 Prisma models: `Ticket` (id, subject, status `OPEN | RESOLVED | CLOSED`, category `GENERAL | TECHNICAL | REFUND` nullable, customerEmail, customerName, summary, timestamps) and `Message` (id, ticketId, direction `INBOUND | OUTBOUND`, fromEmail, bodyText, bodyHtml, emailMessageId, sentByUserId nullable, createdAt)
+- [x] 3.2 Add shared Zod schemas and enums in `packages/shared`
+- [ ] 3.3 Set up Postmark inbound stream and a local tunnel for development (e.g. ngrok) — no provider chosen yet; the webhook takes a provider-neutral JSON shape (`inboundEmailSchema`), so a provider adapter only maps its payload to it
+- [x] 3.4 `POST /api/webhooks/inbound-email`: verify webhook authenticity (`Authorization: Bearer INBOUND_EMAIL_SECRET`)
+- [x] 3.5 Webhook stores the raw payload and enqueues an `ingest-email` job (respond quickly, process async) — done synchronously for now: the API creates the ticket in the request (no queue, no raw payload stored). Move to a worker job if ingestion gets slow
+- [x] 3.6 Worker `ingest-email`: parse sender, subject, plain text and HTML body — in the API (`apps/api/src/inbound-email/ingest.ts`)
+- [x] 3.7 Threading: match `In-Reply-To` / `References` headers to an existing ticket's message IDs; otherwise create a new ticket. Only when the sender is the ticket's customer (else a new ticket)
+- [x] 3.8 Reopen rule: reply on a Resolved ticket sets it back to Open; reply on a Closed ticket creates a new ticket
+- [x] 3.9 Idempotency: ignore duplicate webhook deliveries (unique `emailMessageId`)
+- [x] 3.10 Filter auto-replies and bounces (`Auto-Submitted` header, out-of-office patterns) so they don't create tickets
+- [x] 3.11 Sanitize HTML email bodies before storage/display
+- [x] 3.12 Tests with sample email payloads (new ticket, reply, duplicate, auto-reply)
 
 **Done when:** sending an email to the support address creates a ticket, and replying to it adds a message to the same ticket.
 
@@ -98,7 +98,7 @@ Goal: incoming emails become tickets.
 
 Goal: Agents can find and read tickets.
 
-- [ ] 4.1 `GET /tickets` with server-side pagination
+- [ ] 4.1 `GET /tickets` with server-side pagination — basic `GET /api/tickets` (latest 100 by last activity) and a Tickets page exist; pagination pending
 - [ ] 4.2 Filters: status, category, date range, text search (subject, customer email)
 - [ ] 4.3 Sorting: created date, last updated, status, category
 - [ ] 4.4 Database indexes for status, category, createdAt; PostgreSQL full-text search index

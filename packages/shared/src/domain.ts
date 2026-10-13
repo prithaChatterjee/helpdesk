@@ -8,6 +8,8 @@ export type UserRole = z.infer<typeof userRoleSchema>;
 
 export const TICKET_STATUSES = ['OPEN', 'RESOLVED', 'CLOSED'] as const;
 export const ticketStatusSchema = z.enum(TICKET_STATUSES);
+/** Enum-like access to the statuses, e.g. `TicketStatus.OPEN`. */
+export const TicketStatus = ticketStatusSchema.enum;
 export type TicketStatus = z.infer<typeof ticketStatusSchema>;
 
 export const TICKET_CATEGORIES = ['GENERAL', 'TECHNICAL', 'REFUND'] as const;
@@ -19,3 +21,14 @@ export const TICKET_CATEGORY_LABELS: Record<TicketCategory, string> = {
   TECHNICAL: 'Technical question',
   REFUND: 'Refund request',
 };
+
+export const TICKET_STATUS_LABELS: Record<TicketStatus, string> = {
+  OPEN: 'Open',
+  RESOLVED: 'Resolved',
+  CLOSED: 'Closed',
+};
+
+export const MESSAGE_DIRECTIONS = ['INBOUND', 'OUTBOUND'] as const;
+export const messageDirectionSchema = z.enum(MESSAGE_DIRECTIONS);
+export const MessageDirection = messageDirectionSchema.enum;
+export type MessageDirection = z.infer<typeof messageDirectionSchema>;

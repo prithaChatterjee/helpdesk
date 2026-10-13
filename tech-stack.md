@@ -78,6 +78,8 @@ Inbound email → Postmark webhook → API stores ticket (Open) → enqueue job
 Customer reply → matched to ticket via In-Reply-To / References headers
 ```
 
+For now there is no email provider and no ingestion job: `POST /api/webhooks/inbound-email` takes a provider-neutral JSON email and creates or updates the ticket within the request.
+
 ## Services
 
 | Service    | Responsibility                                             |

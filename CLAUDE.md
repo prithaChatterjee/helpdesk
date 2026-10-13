@@ -99,6 +99,19 @@ Hand e2e work to the `e2e-tester` subagent (`.claude/agents/e2e-tester.md`) inst
 - Roles: protect API routes with `requireAuth(auth), requireRole('ADMIN')` (403 for other roles), e.g. `app.use('/api/users', …, usersRouter(auth, prisma))`. In the web app, nest Admin-only routes under the `<RequireRole role="ADMIN" />` layout route (non-Admins go to `/`) and hide their nav links in `app-header.tsx`. The web check is only UX; the API check is the real guard.
 - Forms: react-hook-form + `zodResolver` with the schema from `@helpdesk/shared`, rendered with `Controller` and shadcn `Field`/`FieldError`; server errors go to `form.setError('root', …)`.
 
+## Inbound email (tickets)
+
+- No email provider yet. `POST /api/webhooks/inbound-email` takes a provider-neutral JSON email (`inboundEmailSchema` in `packages/shared/src/inbound-email.ts`: `messageId`, `from { email, name? }`, `subject`, `text`, `html?`, `inReplyTo?`, `references` (string or array), `headers`). A future Postmark/SendGrid adapter only maps its payload to this shape.
+- Auth is `Authorization: Bearer $INBOUND_EMAIL_SECRET` (constant-time compare), not a session. The route is mounted before the app-wide `express.json()` and checks the secret before parsing its own 10 MB body.
+- `ingestInboundEmail` (`apps/api/src/inbound-email/ingest.ts`) runs in the request, no queue: auto-replies/bounces are ignored (`detectAutoReply`), a known `emailMessageId` is a duplicate (also on a P2002 race), a reply whose `In-Reply-To`/`References` match a message of a non-Closed ticket **from that ticket's customer** is appended (Resolved → Open), anything else creates a ticket. Responses: 201 `created`, 200 `appended`/`duplicate`/`ignored`.
+- Message ids are stored without `<>` (`normalizeMessageId`). HTML bodies are stored sanitized (`sanitizeEmailHtml`: no scripts, styles, event handlers, images; links get `rel="noopener noreferrer nofollow"`); `bodyText` falls back to `htmlToText`. Still render bodies as text or through the sanitizer, never raw.
+- `GET /api/tickets` (any signed-in role) is a basic list, latest 100 by `updatedAt`; the web Tickets page is `src/pages/tickets-page.tsx`.
+- Local test:
+
+  ```sh
+  curl -X POST localhost:3000/api/webhooks/inbound-email -H "Authorization: Bearer $INBOUND_EMAIL_SECRET"     -H "Content-Type: application/json" -d '{"messageId":"<a1@cust.test>","from":{"email":"jane@cust.test"},"subject":"Help","text":"Hi"}'
+  ```
+
 ## Conventions
 
 - `@helpdesk/shared` exports **TypeScript source** (no build step). Vite/tsx compile it; tsdown bundles it into api/worker (`deps.alwaysBundle`).

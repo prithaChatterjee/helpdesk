@@ -34,6 +34,7 @@ model User {
   deletedAt     DateTime? @db.Timestamptz(3)
   sessions      Session[]
   accounts      Account[]
+  sentMessages  Message[]
 
   @@map("users")
 }
@@ -89,4 +90,67 @@ model Verification {
 
   @@index([identifier])
   @@map("verifications")
+}
+
+enum TicketStatus {
+  OPEN
+  RESOLVED
+  CLOSED
+}
+
+enum TicketCategory {
+  GENERAL
+  TECHNICAL
+  REFUND
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+/// A customer conversation, created from the first inbound email.
+model Ticket {
+  id            String          @id @default(uuid(7)) @db.Uuid
+  subject       String
+  status        TicketStatus    @default(OPEN)
+  /// Empty until the AI (or an Agent) classifies the ticket
+  category      TicketCategory?
+  customerEmail String
+  customerName  String?
+  summary       String?
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  /// Bumped whenever a message is added, so the list can sort by latest activity
+  updatedAt     DateTime        @updatedAt @db.Timestamptz(3)
+  messages      Message[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@index([customerEmail])
+  @@map("tickets")
+}
+
+/// One email in a ticket's thread: inbound from the customer or outbound from an Agent.
+model Message {
+  id             String           @id @default(uuid(7)) @db.Uuid
+  ticketId       String           @db.Uuid
+  ticket         Ticket           @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  direction      MessageDirection
+  fromEmail      String
+  fromName       String?
+  bodyText       String
+  /// Sanitized before storage
+  bodyHtml       String?
+  /// RFC 5322 Message-ID without angle brackets; unique so duplicate deliveries are ignored
+  emailMessageId String?          @unique
+  inReplyTo      String?
+  references     String[]
+  /// The Agent who sent an outbound message
+  sentByUserId   String?          @db.Uuid
+  sentBy         User?            @relation(fields: [sentByUserId], references: [id], onDelete: SetNull)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+
+  @@index([ticketId, createdAt])
+  @@map("messages")
 }

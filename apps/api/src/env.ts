@@ -4,6 +4,7 @@ import { z } from 'zod';
 // Values published in .env.example; a production deploy must replace them
 const EXAMPLE_ADMIN_PASSWORD = 'change-me-please';
 const EXAMPLE_BETTER_AUTH_SECRET = 'replace-with-at-least-32-random-characters';
+const EXAMPLE_INBOUND_EMAIL_SECRET = 'replace-with-another-32-plus-random-characters';
 
 const envSchema = z
   .object({
@@ -17,6 +18,8 @@ const envSchema = z
     ADMIN_PASSWORD: z.string().min(8),
     BETTER_AUTH_SECRET: z.string().min(32),
     BETTER_AUTH_URL: z.url(),
+    // Bearer token for POST /api/webhooks/inbound-email
+    INBOUND_EMAIL_SECRET: z.string().min(32),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;
@@ -31,6 +34,13 @@ const envSchema = z
       ctx.addIssue({
         code: 'custom',
         path: ['BETTER_AUTH_SECRET'],
+        message: 'Must not be the .env.example value in production',
+      });
+    }
+    if (env.INBOUND_EMAIL_SECRET === EXAMPLE_INBOUND_EMAIL_SECRET) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['INBOUND_EMAIL_SECRET'],
         message: 'Must not be the .env.example value in production',
       });
     }

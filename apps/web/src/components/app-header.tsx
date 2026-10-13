@@ -28,6 +28,9 @@ export function AppHeader() {
             <NavLink to="/" end className={navLinkClass}>
               Home
             </NavLink>
+            <NavLink to="/tickets" className={navLinkClass}>
+              Tickets
+            </NavLink>
             {session?.user.role === 'ADMIN' && (
               <NavLink to="/users" className={navLinkClass}>
                 Users

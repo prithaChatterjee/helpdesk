@@ -16,7 +16,8 @@ const auth = createAuth(
   },
   prisma,
 );
-const app = createApp(auth, prisma);
+const INBOUND_EMAIL_SECRET = 'test-inbound-email-secret-0000000000';
+const app = createApp(auth, prisma, { inboundEmailSecret: INBOUND_EMAIL_SECRET });
 
 /** Makes the next requests look signed in as a user with `role`. */
 function signInAs(role: UserRole, { isActive = true } = {}) {
@@ -595,5 +596,126 @@ describe('error handler', () => {
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: expect.stringContaining('JSON') });
+  });
+});
+
+describe('POST /api/webhooks/inbound-email', () => {
+  const inboundEmail = {
+    messageId: '<m1@customer.test>',
+    from: { email: 'jane@customer.test', name: 'Jane' },
+    subject: "Can't log in",
+    text: 'Help',
+  };
+
+  function postEmail(body: unknown, secret = INBOUND_EMAIL_SECRET) {
+    return request(app)
+      .post('/api/webhooks/inbound-email')
+      .set('Authorization', `Bearer ${secret}`)
+      .send(body as object);
+  }
+
+  it('returns 401 without the secret', async () => {
+    const create = vi.spyOn(prisma.ticket, 'create');
+    const res = await request(app).post('/api/webhooks/inbound-email').send(inboundEmail);
+    expect(res.status).toBe(401);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 with a wrong secret', async () => {
+    const res = await postEmail(inboundEmail, 'wrong-secret');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 401 for a signed-in user without the secret', async () => {
+    signInAs('ADMIN');
+    const res = await request(app).post('/api/webhooks/inbound-email').send(inboundEmail);
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 for an invalid email', async () => {
+    const res = await postEmail({ ...inboundEmail, from: { email: 'not-an-email' } });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Invalid sender email address' });
+  });
+
+  it('accepts a body over the 1 MB app-wide limit', async () => {
+    vi.spyOn(prisma.message, 'findUnique').mockResolvedValue(null);
+    vi.spyOn(prisma.ticket, 'create').mockResolvedValue({ id: 't1' } as never);
+    const res = await postEmail({ ...inboundEmail, html: `<p>${'a'.repeat(2_000_000)}</p>` });
+    expect(res.status).toBe(201);
+  });
+
+  it('returns 201 with the new ticket id', async () => {
+    vi.spyOn(prisma.message, 'findUnique').mockResolvedValue(null);
+    const create = vi
+      .spyOn(prisma.ticket, 'create')
+      .mockResolvedValue({ id: '0199a000-0000-7000-8000-0000000000a1' } as never);
+
+    const res = await postEmail(inboundEmail);
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({
+      result: 'created',
+      ticketId: '0199a000-0000-7000-8000-0000000000a1',
+    });
+    expect(create.mock.calls[0]?.[0].data.customerEmail).toBe('jane@customer.test');
+  });
+
+  it('returns 200 for a duplicate delivery', async () => {
+    vi.spyOn(prisma.message, 'findUnique').mockResolvedValue({ ticketId: 't1' } as never);
+    const res = await postEmail(inboundEmail);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ result: 'duplicate', ticketId: 't1' });
+  });
+
+  it('returns 200 for an ignored auto-reply', async () => {
+    const res = await postEmail({ ...inboundEmail, headers: { Precedence: 'bulk' } });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ result: 'ignored', reason: 'Precedence: bulk' });
+  });
+});
+
+describe('GET /api/tickets', () => {
+  const createdAt = new Date('2026-10-01T10:00:00.000Z');
+  const updatedAt = new Date('2026-10-02T10:00:00.000Z');
+
+  it('returns 401 without a session cookie', async () => {
+    const res = await request(app).get('/api/tickets');
+    expect(res.status).toBe(401);
+  });
+
+  it.each(['ADMIN', 'AGENT'] as const)('lists tickets newest first for an %s', async (role) => {
+    signInAs(role);
+    const findMany = vi.spyOn(prisma.ticket, 'findMany').mockResolvedValue([
+      {
+        id: 't1',
+        subject: "Can't log in",
+        status: 'OPEN',
+        category: null,
+        customerEmail: 'jane@customer.test',
+        customerName: 'Jane',
+        createdAt,
+        updatedAt,
+      },
+    ] as never);
+
+    const res = await request(app).get('/api/tickets');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      tickets: [
+        {
+          id: 't1',
+          subject: "Can't log in",
+          status: 'OPEN',
+          category: null,
+          customerEmail: 'jane@customer.test',
+          customerName: 'Jane',
+          createdAt: '2026-10-01T10:00:00.000Z',
+          updatedAt: '2026-10-02T10:00:00.000Z',
+        },
+      ],
+    });
+    expect(findMany.mock.calls[0]?.[0]?.orderBy).toEqual({ updatedAt: 'desc' });
   });
 });

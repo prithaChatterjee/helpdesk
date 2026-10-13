@@ -16,9 +16,12 @@ const auth = createAuth(
 
 await seedAdmin(auth, prisma, { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD });
 
-const server = createApp(auth, prisma).listen(env.API_PORT, () => {
-  console.log(`API listening on http://localhost:${env.API_PORT}`);
-});
+const server = createApp(auth, prisma, { inboundEmailSecret: env.INBOUND_EMAIL_SECRET }).listen(
+  env.API_PORT,
+  () => {
+    console.log(`API listening on http://localhost:${env.API_PORT}`);
+  },
+);
 
 function shutdown(signal: string) {
   console.log(`${signal} received, shutting down API`);

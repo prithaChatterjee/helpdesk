@@ -16,10 +16,12 @@
     "@helpdesk/shared": "^0.0.0",
     "better-auth": "^1.7.7",
     "express": "^5.2.1",
+    "sanitize-html": "^2.18.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
+    "@types/sanitize-html": "^2.16.2",
     "@types/supertest": "^7.2.1",
     "supertest": "^7.3.1"
   }
