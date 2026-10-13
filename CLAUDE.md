@@ -18,20 +18,21 @@ For Better Auth, prefer the `better-auth` MCP server (`search_docs` → `get_doc
 
 npm workspaces monorepo, TypeScript everywhere, ESM (`"type": "module"`).
 
-| Path              | What                                                                                                                                                                    |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/web`        | React 19 + Vite + Tailwind 4 + shadcn/ui (radix-nova) + React Router 8. `@/` alias → `src/`; pages in `src/pages/`                                                      |
-| `apps/api`        | Express 5 REST API. All routes under `/api/*`. `createApp(auth, prisma)` in `app.ts` is separate from `index.ts` (listen) for supertest; route modules in `src/routes/` |
-| `apps/worker`     | BullMQ consumers; processors in `src/processors/`                                                                                                                       |
-| `packages/shared` | Zod schemas (form schemas like `signInSchema`, API response types like `UserListResponse`), enums (roles, ticket statuses, categories), queue names                     |
-| `packages/db`     | Prisma 7 schema, migrations, generated client (`src/generated/`, gitignored), `createPrismaClient()`. Node-only                                                         |
-| `e2e`             | Playwright end-to-end tests (`tests/`). Own database `helpdesk_test` and ports (API :3001, web :5174), settings and seeded `TEST_USERS` in `test-env.ts`                |
+| Path              | What                                                                                                                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web`        | React 19 + Vite + Tailwind 4 + shadcn/ui (radix-nova) + React Router 8. `@/` alias → `src/`; pages in `src/pages/`                                                              |
+| `apps/api`        | Express 5 REST API. All routes under `/api/*`. `createApp(auth, prisma, config)` in `app.ts` is separate from `index.ts` (listen) for supertest; route modules in `src/routes/` |
+| `apps/worker`     | BullMQ consumers; processors in `src/processors/`                                                                                                                               |
+| `packages/shared` | Zod schemas (form schemas like `signInSchema`, API response types like `UserListResponse`), enums (roles, ticket statuses, categories), queue names                             |
+| `packages/db`     | Prisma 7 schema, migrations, generated client (`src/generated/`, gitignored), `createPrismaClient()`. Node-only                                                                 |
+| `e2e`             | Playwright end-to-end tests (`tests/`). Own database `helpdesk_test` and ports (API :3001, web :5174), settings and seeded `TEST_USERS` in `test-env.ts`                        |
 
 ## Commands
 
 ```sh
 docker compose up -d   # PostgreSQL :5432, Redis :6379
 npm run dev            # api :3000, worker, web :5173 (Vite proxies /api → :3000)
+                       # without Redis: npm run dev -w @helpdesk/api (the worker only logs connection errors)
 npm test               # Vitest (projects: packages/*, apps/api, apps/worker, apps/web)
 npm run test:e2e       # Playwright: resets + seeds helpdesk_test, starts api :3001 and web :5174, runs e2e/tests
                        # first time: npx playwright install chromium (from e2e/)
@@ -46,15 +47,15 @@ npm run db:seed        # create/update the Admin (ADMIN_*) and optional extra us
 npm run db:studio      # Prisma Studio
 ```
 
-Every seed run also re-saves the Admin (role, active, password reset to `ADMIN_PASSWORD`), so it refuses to run with `NODE_ENV=production` unless `SEED_ALLOW_PRODUCTION=true`. In production the API env also rejects the `.env.example` secret/Admin password and non-https `BETTER_AUTH_URL`/`WEB_ORIGIN`.
+Every seed run also re-saves the Admin (role, active, password reset to `ADMIN_PASSWORD`), so it refuses to run with `NODE_ENV=production` unless `SEED_ALLOW_PRODUCTION=true`. In production the API env also rejects the `.env.example` secrets (`BETTER_AUTH_SECRET`, `INBOUND_EMAIL_SECRET`)/Admin password and non-https `BETTER_AUTH_URL`/`WEB_ORIGIN`. The seed script loads the full API env, so it also needs every required API variable (including `INBOUND_EMAIL_SECRET`).
 
-Before finishing a task, run `npm run lint`, `npm run typecheck`, `npm test`, and `npm run format:check`. CI (`.github/workflows/ci.yml`) also runs `npm run build`. When a change touches UI or auth flows and `e2e/tests` has specs, also run `npm run test:e2e` (needs local PostgreSQL; not in CI yet).
+Before finishing a task, run `npm run lint`, `npm run typecheck`, `npm test`, and `npm run format:check`. CI (`.github/workflows/ci.yml`) also runs `npm run build`. When a change touches flows that existing `e2e/tests` specs cover (e.g. auth, user management, tickets), also run `npm run test:e2e` (needs local PostgreSQL; not in CI yet). It never reuses running servers, so it fails while ports :3001/:5174 are taken, e.g. by an open `npm run test:e2e:ui` session; ask before stopping the user's session.
 
 Project subagents: `security-reviewer` (`.claude/agents/security-reviewer.md`) audits the whole codebase (or the branch) for security vulnerabilities: auth/sessions, authorization/IDOR, injection, data exposure, secrets, XSS, prompt injection in AI features, dependencies. Read-only. `e2e-tester` writes Playwright tests (see "End-to-end tests" below).
 
 ## Testing
 
-Three layers. Test behavior at the lowest layer that can show it, and add tests with the change, not after.
+Three layers. Test behavior at the lowest layer that can show it, and add tests with the change, not after. **UI changes get component tests by default; write e2e tests only when necessary** (see "When to write e2e tests" below).
 
 | Layer      | Files                                                                 | Run                                                                                        |
 | ---------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -70,8 +71,11 @@ Vitest project names are the package names (`@helpdesk/shared`, `@helpdesk/api`,
 - Cover the success path, each validation or error branch, and edge values (empty, boundary, wrong type). One behavior per `it`, named for the behavior (`'throws listing every invalid variable'`).
 - Tests must not import a module that parses `process.env` or opens connections on import (`src/env.ts`, `src/db.ts`); pass config to factories (`createAuth`, `createApp`) instead.
 - API route tests use supertest against `createApp` with no database or real session: `vi.spyOn(auth.api, 'getSession')` to sign in as a role and `vi.spyOn(prisma.user, 'findMany')` (etc.) to stub queries, with `vi.restoreAllMocks()` in `afterEach` (see `apps/api/src/app.test.ts`). Check status codes for each role (401 signed out, 403 wrong role) and that responses never include secrets like password hashes or `tokenHash`.
+- Array-form `prisma.$transaction([...])`: stub `$transaction` and spy the queries inside with `mockReturnValue` (Prisma queries are lazy, so they never run) to assert their arguments (see `apps/api/src/inbound-email/ingest.test.ts`). Callback-form transactions: `mockImplementation((fn) => fn(prisma))`.
 
 ### Component tests
+
+The main way to test the web app. Every new or changed page, dialog, form or table gets a `*.test.tsx` next to it covering its states and interactions: rendering from API data, pending/empty/error states, form validation messages, submitting (request method, path and body), server errors, and role-dependent UI. They are fast, need no database or servers, and run in CI.
 
 - Vitest in jsdom via `apps/web/vitest.config.ts`, which merges `vite.config.ts` (so `@/` works; import it with the `.ts` extension or Vite warns). React Testing Library + jest-dom matchers are loaded in `src/test/setup.ts`, which also runs `cleanup` because globals are off.
 - Render inside a fresh `QueryClient` with `retry: false`. Stub `fetch` with `vi.spyOn(globalThis, 'fetch')` (e.g. `Response.json(body, { status })`) rather than mocking `apiGet`, so the request path and error handling are tested too.
@@ -79,11 +83,21 @@ Vitest project names are the package names (`@helpdesk/shared`, `@helpdesk/api`,
 
 ### End-to-end tests
 
-Hand e2e work to the `e2e-tester` subagent (`.claude/agents/e2e-tester.md`) instead of writing specs inline. This covers adding specs for a new page or flow, fixing failing or flaky specs, and checking a flow in a real browser.
+Write e2e tests only when necessary: for behavior that only shows up with the real API, database, cookies and browser together, which component and API tests (with stubbed `fetch`/Prisma) can't prove. Keep specs to happy paths; edge cases and error branches belong in unit, API or component tests.
+
+When to write e2e tests:
+
+- Auth and sessions: sign-in/out, cookies, redirects, deactivated or deleted users locked out mid-session.
+- Role access end to end: an Agent can't reach Admin pages or APIs.
+- A critical flow across layers, e.g. an email posted to the webhook appears on `/tickets`, or an Admin-created user can sign in.
+
+Not for: layout, form validation messages, loading/empty/error states, or one component's behavior. Those get component tests.
+
+Hand e2e work to the `e2e-tester` subagent (`.claude/agents/e2e-tester.md`) instead of writing specs inline. This covers adding specs for a new flow, fixing failing or flaky specs, and checking a flow in a real browser.
 
 - In the prompt, name the flows and roles to cover (Admin, Agent), the pages and API routes involved, and whether it may change app code. By default it only edits `e2e/`.
 - When it reports app bugs, relay them to the user and fix them here, then have it re-run the affected specs.
-- After a feature that changes UI or auth flows, suggest adding or updating e2e specs through the agent.
+- After a feature, add component tests yourself first; only suggest an e2e spec through the agent when the change matches "When to write e2e tests" above.
 - The e2e setup (database reset, `TEST_USERS`, ports, env isolation, test-writing rules) is documented only in the agent file. Read it before changing anything in `e2e/` yourself.
 
 ## Authentication (Better Auth)
@@ -109,14 +123,19 @@ Hand e2e work to the `e2e-tester` subagent (`.claude/agents/e2e-tester.md`) inst
 - Local test:
 
   ```sh
-  curl -X POST localhost:3000/api/webhooks/inbound-email -H "Authorization: Bearer $INBOUND_EMAIL_SECRET"     -H "Content-Type: application/json" -d '{"messageId":"<a1@cust.test>","from":{"email":"jane@cust.test"},"subject":"Help","text":"Hi"}'
+  curl -X POST localhost:3000/api/webhooks/inbound-email \
+    -H "Authorization: Bearer $INBOUND_EMAIL_SECRET" -H "Content-Type: application/json" \
+    -d '{"messageId":"<a1@cust.test>","from":{"email":"jane@cust.test"},"subject":"Help","text":"Hi"}'
   ```
+
+  Without a provider, nothing calls the webhook on its own: curl (or a test) stands in for it. e2e covers it in `e2e/tests/tickets.spec.ts` with `E2E_INBOUND_EMAIL_SECRET` from `test-env.ts`.
 
 ## Conventions
 
 - `@helpdesk/shared` exports **TypeScript source** (no build step). Vite/tsx compile it; tsdown bundles it into api/worker (`deps.alwaysBundle`).
 - The shared root export (`@helpdesk/shared`) must stay **browser-safe**. Node-only code goes in a subpath export (e.g. `@helpdesk/shared/env`) added to `packages/shared/package.json` `exports`.
 - Domain enums (`USER_ROLES`, `TICKET_STATUSES`, `TICKET_CATEGORIES`) and queue names live only in `packages/shared` — never redefine them in apps.
+- Ticket statuses and categories are defined by their label maps in `packages/shared/src/domain.ts` (`TICKET_STATUS_LABELS`, `TICKET_CATEGORY_LABELS`, `as const`): the keys are the type (`TicketStatus = keyof typeof TICKET_STATUS_LABELS`), and the list (`keysOf(...)`), Zod schema and enum-like object are derived from them. To add a value, add one label entry, then the matching value to the Prisma enum in `schema.prisma` and migrate (the Prisma enums are a separate copy). Show labels via the map, e.g. `TICKET_CATEGORY_LABELS[ticket.category]`.
 - Env vars are validated with Zod via `parseEnv` in each app's `src/env.ts`; add new variables there and to `.env.example`. Dev scripts load the root `.env` with `--env-file-if-exists`. Production-only rules go in a `.superRefine` on the schema (see `apps/api/src/env.ts`). `src/env.ts` and `src/db.ts` parse `process.env` on import and tests have no `.env`, so tests must not import them — pass config to factories (`createAuth`, `createApp`) instead.
 - Don't let a security control depend on `NODE_ENV` defaults: Better Auth (default-secret check) and Express (stack traces in error responses) silently weaken when it isn't `production`. Set them explicitly.
 - TypeScript: strict, `noUncheckedIndexedAccess`, `verbatimModuleSyntax` (use `import type`), `erasableSyntaxOnly` (no TS `enum` — use `as const` arrays + `z.enum`, and the schema's `.enum` for enum-like access, e.g. `UserRole.AGENT`; no constructor parameter properties). Extensionless relative imports (bundler resolution).
@@ -124,7 +143,7 @@ Hand e2e work to the `e2e-tester` subagent (`.claude/agents/e2e-tester.md`) inst
 - Web data fetching: TanStack Query (`useQuery`, provider in `main.tsx`) with `apiGet<T>(path)` from `@/lib/api` (relative `/api` path, throws `ApiError` with `status`). Writes use `useMutation` with `apiPost<T>(path, body)`; in `onSuccess`, await `invalidateQueries` for the affected list (so `isPending` covers the refetch) and confirm with a Sonner `toast` (`<Toaster>` is in `main.tsx`). Handle pending and error states on every page: while pending, show a shadcn `Skeleton` shaped like the content (e.g. real table headers with placeholder rows) inside `role="status"` with an `sr-only` "Loading…" label, not a text message; show errors in a `role="alert"` element.
 - **Prisma 7** (`prisma-client` generator + `@prisma/adapter-pg`). Keep `prisma`, `@prisma/client` and `@prisma/adapter-pg` on the same version. npm's `latest` tag for the `prisma` CLI points to an 8.x release candidate, so always install with an explicit version (e.g. `prisma@7.10.0`).
 - Import the client and model types from `@helpdesk/db`, never from `./generated` paths or `@prisma/client`. Each app creates its own client in `src/db.ts` from its validated env.
-- Schema: models PascalCase, tables snake_case plural via `@@map`, ids `@default(uuid(7)) @db.Uuid`, timestamps `@db.Timestamptz(3)`. Change the schema, then run `npm run db:migrate -- --name <change>`; commit the migration folder.
+- Schema: models PascalCase, tables snake_case plural via `@@map`, ids `@default(uuid(7)) @db.Uuid`, timestamps `@db.Timestamptz(3)`. Columns keep the camelCase field names (no `@map`), so raw SQL must quote them (`"ticketId"`, `"customerEmail"`). Change the schema, then run `npm run db:migrate -- --name <change>`; commit the migration folder.
 - api/worker builds (tsdown) bundle `@helpdesk/*` and keep npm packages external (`deps.neverBundle` regex) — don't bundle `pg`/Prisma runtime.
 - Add shadcn components with `npx shadcn@latest add <name>` from `apps/web`; don't hand-write them. Utilities come from the `cn` package (shadcn's).
 - Global styles go in `@layer base` in `apps/web/src/index.css`. Tailwind's preflight already resets most browser defaults; `index.css` also covers autofill, `color-scheme`, number spinners and the search clear button. Base-layer rules lose to utility classes on components (e.g. the shadcn `Input`'s `transition-colors`), so a global override of a property a component sets needs `!important`.
