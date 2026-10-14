@@ -1585,7 +1585,7 @@ describe('POST /api/tickets/:id/replies/polish', () => {
   it('returns 502 when the model fails', async () => {
     signInAs('AGENT');
     stubTicket();
-    replyPolisher.mockRejectedValue(new Error('OpenAI is down'));
+    replyPolisher.mockRejectedValue(new Error('Gemini is down'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const res = await request(polishApp)
@@ -1715,7 +1715,7 @@ describe('POST /api/tickets/:id/summary', () => {
     signInAs('AGENT');
     stubTicket();
     const save = stubSave();
-    ticketSummarizer.mockRejectedValue(new Error('OpenAI is down'));
+    ticketSummarizer.mockRejectedValue(new Error('Gemini is down'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const res = await request(summaryApp).post(`/api/tickets/${ticketId}/summary`);
@@ -1734,5 +1734,91 @@ describe('POST /api/tickets/:id/summary', () => {
     expect(res.status).toBe(503);
     expect(res.body).toEqual({ error: "Summarizing tickets isn't set up" });
     expect(findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/webhooks/inbound-email classification', () => {
+  const ticketId = '0199a000-0000-7000-8000-0000000000a1';
+  const enqueue = vi.fn<(ticketId: string) => Promise<unknown>>();
+  const queueApp = createApp(auth, prisma, {
+    inboundEmailSecret: INBOUND_EMAIL_SECRET,
+    enqueueTicketClassification: enqueue,
+  });
+  const inboundEmail = {
+    messageId: '<m1@customer.test>',
+    from: { email: 'jane@customer.test', name: 'Jane' },
+    subject: 'Refund please',
+    text: 'I was charged twice',
+  };
+
+  function postEmail(to = queueApp) {
+    return request(to)
+      .post('/api/webhooks/inbound-email')
+      .set('Authorization', `Bearer ${INBOUND_EMAIL_SECRET}`)
+      .send(inboundEmail);
+  }
+
+  /** Stubs ingestion creating a new ticket. */
+  function stubNewTicket() {
+    vi.spyOn(prisma.message, 'findUnique').mockResolvedValue(null);
+    vi.spyOn(prisma.ticket, 'create').mockResolvedValue({ id: ticketId } as never);
+  }
+
+  afterEach(() => {
+    enqueue.mockReset();
+  });
+
+  it('queues classification of a new ticket', async () => {
+    stubNewTicket();
+    enqueue.mockResolvedValue('job-1');
+
+    const res = await postEmail();
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ result: 'created', ticketId });
+    expect(enqueue).toHaveBeenCalledExactlyOnceWith(ticketId);
+  });
+
+  it('never calls the AI itself, so the response does not wait for it', async () => {
+    stubNewTicket();
+    enqueue.mockResolvedValue('job-1');
+    const findTicket = vi.spyOn(prisma.ticket, 'findUnique');
+
+    await postEmail();
+
+    // Classifying reads the ticket; only the worker does that
+    expect(findTicket).not.toHaveBeenCalled();
+  });
+
+  it('still responds 201 when the job cannot be queued', async () => {
+    stubNewTicket();
+    enqueue.mockRejectedValue(new Error('database unavailable'));
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await postEmail();
+
+    expect(res.status).toBe(201);
+    expect(logged).toHaveBeenCalledWith(
+      `Couldn't queue classification of ticket ${ticketId}:`,
+      expect.any(Error),
+    );
+  });
+
+  it('does not queue an email it has already stored', async () => {
+    // A duplicate delivery
+    vi.spyOn(prisma.message, 'findUnique').mockResolvedValue({ ticketId } as never);
+
+    const res = await postEmail();
+
+    expect(res.body).toEqual({ result: 'duplicate', ticketId });
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('works without a queue', async () => {
+    stubNewTicket();
+
+    const res = await postEmail(app);
+
+    expect(res.status).toBe(201);
   });
 });

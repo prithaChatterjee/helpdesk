@@ -138,11 +138,11 @@ Goal: every new ticket gets a category automatically.
 
 - [ ] 6.1 Claude API client wrapper in worker (API key from env, timeouts, retries)
 - [ ] 6.2 Classification prompt using `claude-haiku-5-5` returning structured JSON: `{ category, confidence, reason }`
-- [ ] 6.3 Validate AI output with Zod; reject invalid categories
-- [ ] 6.4 Worker `classify-ticket` job, triggered after ingestion of a new ticket
+- [x] 6.3 Validate AI output with Zod; reject invalid categories — `Output.object` with `ticketCategorySchema` (`apps/api/src/inbound-email/classify.ts`)
+- [x] 6.4 Worker `classify-ticket` job, triggered after ingestion of a new ticket — on pg-boss (PostgreSQL) instead of BullMQ, so it runs without Redis; Google Gemini `gemini-3.5-flash-lite`, paced to `AI_REQUESTS_PER_MINUTE`
 - [ ] 6.5 Store `category`, `categoryConfidence`, `categorySource` (`AI | AGENT`) on ticket
 - [ ] 6.6 Low confidence (below threshold) leaves category empty and flags for manual review
-- [ ] 6.7 If the AI API fails, the ticket stays usable without a category; job retries later
+- [x] 6.7 If the AI API fails, the ticket stays usable without a category; job retries later — done: the ticket stays uncategorized and pg-boss retries the job (8 times, backoff up to 1 h)
 - [ ] 6.8 Frontend: show category badge with "AI" marker; Agent override sets source to `AGENT`
 - [ ] 6.9 Evaluation set: ~50 real (anonymized) emails with known categories; script to measure accuracy
 

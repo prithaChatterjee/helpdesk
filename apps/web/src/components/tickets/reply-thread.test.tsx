@@ -80,3 +80,17 @@ describe('ReplyThread', () => {
     expect(screen.getByRole('textbox', { name: 'Reply' })).toBeInTheDocument();
   });
 });
+
+describe('ReplyThread reply box', () => {
+  it('sticks to the bottom of the screen while the conversation scrolls', () => {
+    renderThread();
+
+    const replyBox = screen.getByRole('region', { name: 'Write a reply' });
+    expect(replyBox).toHaveClass('sticky', 'bottom-0');
+    expect(within(replyBox).getByRole('textbox', { name: 'Reply' })).toBeInTheDocument();
+    // An overflow-hidden card would make the box stick to the card instead of the screen
+    const card = replyBox.closest('[data-slot="card"]');
+    expect(card).toHaveClass('overflow-visible');
+    expect(card).not.toHaveClass('overflow-hidden');
+  });
+});

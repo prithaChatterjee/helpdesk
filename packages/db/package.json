@@ -18,8 +18,10 @@
     "prisma": "^7.10.0"
   },
   "dependencies": {
+    "@helpdesk/shared": "^0.0.0",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "pg-boss": "^12.38.0"
   }
 }

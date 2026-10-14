@@ -5,7 +5,7 @@ import type { Auth } from './auth';
 import { requireAuth } from './middleware/require-auth';
 import { requireRole } from './middleware/require-role';
 import { assigneesRouter } from './routes/assignees';
-import { inboundEmailRouter } from './routes/inbound-email';
+import { type EnqueueTicketClassification, inboundEmailRouter } from './routes/inbound-email';
 import { type TicketsAi, ticketsRouter } from './routes/tickets';
 import { usersRouter } from './routes/users';
 
@@ -13,10 +13,12 @@ export interface AppConfig {
   /** Bearer token the inbound email webhook requires */
   inboundEmailSecret: string;
   /**
-   * Polishes reply drafts and summarizes tickets with AI; without them (no `OPENAI_API_KEY`), those
-   * routes return 503
+   * Polishes reply drafts and summarizes tickets with AI; without them (no `GOOGLE_GENERATIVE_AI_API_KEY`),
+   * those routes return 503
    */
   ai?: TicketsAi;
+  /** Queues AI classification of each ticket the inbound email webhook creates */
+  enqueueTicketClassification?: EnqueueTicketClassification;
 }
 
 export function createApp(auth: Auth, prisma: PrismaClient, config: AppConfig) {
@@ -26,7 +28,10 @@ export function createApp(auth: Auth, prisma: PrismaClient, config: AppConfig) {
   // Better Auth parses its own request bodies, so mount it before express.json()
   app.all('/api/auth/*splat', toNodeHandler(auth));
   // Parses its own (larger) bodies, after checking the webhook secret
-  app.use('/api/webhooks/inbound-email', inboundEmailRouter(prisma, config.inboundEmailSecret));
+  app.use(
+    '/api/webhooks/inbound-email',
+    inboundEmailRouter(prisma, config.inboundEmailSecret, config.enqueueTicketClassification),
+  );
   app.use(express.json({ limit: '1mb' }));
 
   app.get('/api/health', (_req, res) => {

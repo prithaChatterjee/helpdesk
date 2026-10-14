@@ -1,9 +1,11 @@
-import { createOpenAI } from '@ai-sdk/openai';
-import { AI_MODEL, createReplyPolisher, createTicketSummarizer } from './routes/tickets';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { sendClassifyTicketJob, startJobQueue } from '@helpdesk/db';
+import { AI_MODEL } from '@helpdesk/shared';
 import { createApp } from './app';
 import { createAuth } from './auth';
 import { prisma } from './db';
 import { env } from './env';
+import { createReplyPolisher, createTicketSummarizer } from './routes/tickets';
 import { seedAdmin } from './seed-admin';
 
 const auth = createAuth(
@@ -18,20 +20,26 @@ const auth = createAuth(
 
 await seedAdmin(auth, prisma, { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD });
 
-// Explicit key, so the provider never falls back to some other OPENAI_API_KEY source
-const model = env.OPENAI_API_KEY
-  ? createOpenAI({ apiKey: env.OPENAI_API_KEY })(AI_MODEL)
+// Explicit key from the validated env, rather than the provider reading process.env itself
+const model = env.GOOGLE_GENERATIVE_AI_API_KEY
+  ? createGoogleGenerativeAI({ apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY })(AI_MODEL)
   : undefined;
 if (!model)
-  console.warn('OPENAI_API_KEY is not set: polishing replies and summarizing tickets are disabled');
+  console.warn(
+    'GOOGLE_GENERATIVE_AI_API_KEY is not set: polishing replies and summarizing tickets are disabled',
+  );
 const ai = model && {
   replyPolisher: createReplyPolisher(model),
   ticketSummarizer: createTicketSummarizer(model),
 };
 
+// pg-boss job queue in PostgreSQL; the worker classifies the tickets
+const jobs = await startJobQueue(env.DATABASE_URL);
+
 const server = createApp(auth, prisma, {
   inboundEmailSecret: env.INBOUND_EMAIL_SECRET,
   ai,
+  enqueueTicketClassification: (ticketId) => sendClassifyTicketJob(jobs, ticketId, 'newTicket'),
 }).listen(env.API_PORT, () => {
   console.log(`API listening on http://localhost:${env.API_PORT}`);
 });
@@ -39,7 +47,10 @@ const server = createApp(auth, prisma, {
 function shutdown(signal: string) {
   console.log(`${signal} received, shutting down API`);
   server.close(() => {
-    void prisma.$disconnect().finally(() => process.exit(0));
+    void jobs
+      .stop({ graceful: true })
+      .then(() => prisma.$disconnect())
+      .finally(() => process.exit(0));
   });
 }
 
