@@ -1,5 +1,10 @@
 import { readFile } from 'node:fs/promises';
-import type { Job, PrismaClient } from '@helpdesk/db';
+import {
+  findAiAgentId,
+  type JobWithMetadata,
+  type PrismaClient,
+  unassignFromAiAgent,
+} from '@helpdesk/db';
 import {
   addGreetingAndSignOff,
   AI_SIGNATURE,
@@ -147,8 +152,12 @@ export async function resolveTicket(
 }
 
 /**
- * Handles `resolve-ticket` jobs. Reads the knowledge base for every job, so edits apply without a
- * restart. A failure (AI provider down or over quota, invalid answer) throws, so pg-boss retries.
+ * Handles `resolve-ticket` jobs; register with `includeMetadata: true` (it needs `retryLimit`).
+ * Reads the knowledge base for every job, so edits apply without a restart. A resolved ticket
+ * stays assigned to the AI Agent; any other outcome unassigns it from the AI Agent (only if it is
+ * still assigned to it), so Agents see it as theirs to pick up. A failure (AI provider down or over
+ * quota, invalid answer) throws, so pg-boss retries; on the last attempt the ticket is unassigned
+ * first, since no later job will do it.
  */
 export function resolveTicketJobs(
   prisma: PrismaClient,
@@ -162,8 +171,15 @@ export function resolveTicketJobs(
     knowledgeBaseUrl: URL;
   },
 ) {
-  return async (jobs: Job<ResolveTicketJob>[]) => {
+  return async (jobs: JobWithMetadata<ResolveTicketJob>[]) => {
     const knowledgeBase = await readFile(knowledgeBaseUrl, 'utf8');
+    const aiAgentId = await findAiAgentId(prisma);
+    const handBack = async (ticketId: string) => {
+      if (aiAgentId && (await unassignFromAiAgent(prisma, ticketId, aiAgentId))) {
+        console.log(`[resolve-ticket] ticket ${ticketId}: unassigned from the AI Agent`);
+      }
+    };
+
     for (const job of jobs) {
       const { ticketId } = job.data;
       let outcome;
@@ -171,13 +187,19 @@ export function resolveTicketJobs(
         outcome = await resolveTicket(prisma, resolve, ticketId, { knowledgeBase, supportEmail });
       } catch (err) {
         const message = err instanceof Error ? err.message.split('\n')[0] : String(err);
-        console.error(`[resolve-ticket] ticket ${ticketId} failed: ${message}`);
+        const lastAttempt = job.retryCount >= job.retryLimit;
+        console.error(
+          `[resolve-ticket] ticket ${ticketId} failed${lastAttempt ? ' for good' : ''}: ${message}`,
+        );
+        if (lastAttempt) await handBack(ticketId);
         throw err;
       }
-      if (outcome.result === 'resolved')
+      if (outcome.result === 'resolved') {
         console.log(`[resolve-ticket] ticket ${ticketId}: resolved`);
-      else
+      } else {
         console.log(`[resolve-ticket] ticket ${ticketId}: ${outcome.result} (${outcome.reason})`);
+        await handBack(ticketId);
+      }
     }
   };
 }

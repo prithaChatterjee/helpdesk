@@ -1758,10 +1758,13 @@ describe('POST /api/webhooks/inbound-email AI jobs', () => {
       .send(inboundEmail);
   }
 
-  /** Stubs ingestion creating a new ticket. */
-  function stubNewTicket() {
+  const aiAgentId = '0199a000-0000-7000-8000-0000000000ff';
+
+  /** Stubs ingestion creating a new ticket, and the AI Agent lookup (`aiAgent` id or none). */
+  function stubNewTicket({ aiAgent = null as string | null } = {}) {
     vi.spyOn(prisma.message, 'findUnique').mockResolvedValue(null);
-    vi.spyOn(prisma.ticket, 'create').mockResolvedValue({ id: ticketId } as never);
+    vi.spyOn(prisma.user, 'findFirst').mockResolvedValue((aiAgent && { id: aiAgent }) as never);
+    return vi.spyOn(prisma.ticket, 'create').mockResolvedValue({ id: ticketId } as never);
   }
 
   afterEach(() => {
@@ -1805,6 +1808,7 @@ describe('POST /api/webhooks/inbound-email AI jobs', () => {
   });
 
   it('does not queue an email it has already stored', async () => {
+    vi.spyOn(prisma.user, 'findFirst').mockResolvedValue(null);
     // A duplicate delivery
     vi.spyOn(prisma.message, 'findUnique').mockResolvedValue({ ticketId } as never);
 
@@ -1820,5 +1824,47 @@ describe('POST /api/webhooks/inbound-email AI jobs', () => {
     const res = await postEmail(app);
 
     expect(res.status).toBe(201);
+  });
+
+  it('assigns a new ticket to the AI Agent while it is auto-resolved', async () => {
+    const create = stubNewTicket({ aiAgent: aiAgentId });
+    enqueue.mockResolvedValue('job-1');
+
+    await postEmail();
+
+    expect(create.mock.calls[0]?.[0].data.assignedToId).toBe(aiAgentId);
+  });
+
+  it('leaves a new ticket unassigned without an active AI Agent', async () => {
+    const create = stubNewTicket();
+    enqueue.mockResolvedValue('job-1');
+
+    await postEmail();
+
+    expect(create.mock.calls[0]?.[0].data.assignedToId).toBeUndefined();
+  });
+
+  it('does not assign to the AI Agent without a queue (no auto-resolve)', async () => {
+    const create = stubNewTicket({ aiAgent: aiAgentId });
+    const findAiAgent = vi.spyOn(prisma.user, 'findFirst');
+
+    await postEmail(app);
+
+    expect(findAiAgent).not.toHaveBeenCalled();
+    expect(create.mock.calls[0]?.[0].data.assignedToId).toBeUndefined();
+  });
+
+  it('unassigns the AI Agent again when the jobs cannot be queued', async () => {
+    stubNewTicket({ aiAgent: aiAgentId });
+    enqueue.mockRejectedValue(new Error('database unavailable'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const unassign = vi.spyOn(prisma, '$executeRaw').mockResolvedValue(1 as never);
+
+    const res = await postEmail();
+
+    expect(res.status).toBe(201);
+    const [sql, ...values] = unassign.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+    expect(sql.join('?')).toContain('"assignedToId" = NULL');
+    expect(values).toEqual([ticketId, aiAgentId]);
   });
 });

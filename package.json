@@ -27,6 +27,7 @@
     "db:deploy": "npm run migrate:deploy -w @helpdesk/db",
     "db:studio": "npm run studio -w @helpdesk/db",
     "db:seed": "npm run db:seed -w @helpdesk/api",
+    "db:seed:ai-agent": "npm run db:seed:ai-agent -w @helpdesk/api",
     "tickets:classify": "npm run tickets:classify -w @helpdesk/api",
     "tickets:auto-resolve": "npm run tickets:auto-resolve -w @helpdesk/api"
   },

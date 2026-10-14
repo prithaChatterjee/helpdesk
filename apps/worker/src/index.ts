@@ -6,7 +6,6 @@ import {
   JOB_QUEUES,
   QUEUE_NAMES,
   RESOLVE_MODEL,
-  type ResolveTicketJob,
 } from '@helpdesk/shared';
 import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
@@ -49,8 +48,10 @@ if (env.GOOGLE_GENERATIVE_AI_API_KEY) {
     JOB_QUEUES.classifyTicket,
     classifyTicketJobs(prisma, (input) => pace(() => classifier(input))),
   );
-  await jobs.work<ResolveTicketJob>(
+  await jobs.work(
     JOB_QUEUES.resolveTicket,
+    // Metadata (retryCount/retryLimit) tells the handler when a failure is the last attempt
+    { includeMetadata: true },
     resolveTicketJobs(prisma, (input) => pace(() => resolver(input)), {
       supportEmail: env.SUPPORT_EMAIL,
       // apps/worker/knowledge-base.md, from src/index.ts and from the bundled dist/index.mjs

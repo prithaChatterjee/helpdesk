@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
-import type { PrismaClient } from '@helpdesk/db';
+import { findAiAgentId, type PrismaClient, unassignFromAiAgent } from '@helpdesk/db';
 import { inboundEmailSchema } from '@helpdesk/shared';
 import express, { type RequestHandler, Router } from 'express';
 import { ingestInboundEmail } from '../inbound-email/ingest';
@@ -12,7 +12,7 @@ export type EnqueueNewTicketJobs = (ticketId: string) => Promise<unknown>;
  * `Authorization: Bearer <secret>`. Mount before the app-wide express.json(), which has a smaller
  * body limit. Not behind requireAuth: the caller is the mail pipeline, not a signed-in user.
  * With `enqueueNewTicketJobs`, each new ticket gets `classify-ticket` and `resolve-ticket` jobs for
- * the worker.
+ * the worker, and is assigned to the AI Agent (`npm run db:seed:ai-agent`) meanwhile.
  */
 export function inboundEmailRouter(
   prisma: PrismaClient,
@@ -28,7 +28,10 @@ export function inboundEmailRouter(
       res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid request' });
       return;
     }
-    const result = await ingestInboundEmail(prisma, parsed.data);
+    // While the AI auto-resolves tickets, a new one belongs to the AI Agent until the worker either
+    // resolves it or unassigns it (when there is no active AI Agent, it stays unassigned)
+    const aiAgentId = enqueueNewTicketJobs ? await findAiAgentId(prisma) : undefined;
+    const result = await ingestInboundEmail(prisma, parsed.data, { assignToId: aiAgentId });
     if (result.result === 'created' && result.ticketId && enqueueNewTicketJobs) {
       // Only queues the job (one quick insert); the worker calls the AI later. The ticket is
       // already saved, so a queue failure is logged and the email still counts as received.
@@ -36,6 +39,8 @@ export function inboundEmailRouter(
         await enqueueNewTicketJobs(result.ticketId);
       } catch (err) {
         console.error(`Couldn't queue AI jobs for ticket ${result.ticketId}:`, err);
+        // No job will ever unassign it, so hand it straight to the Agents
+        if (aiAgentId) await unassignFromAiAgent(prisma, result.ticketId, aiAgentId);
       }
     }
     res.status(result.result === 'created' ? 201 : 200).json(result);

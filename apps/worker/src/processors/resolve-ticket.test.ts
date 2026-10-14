@@ -2,7 +2,7 @@ import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createPrismaClient, type Job } from '@helpdesk/db';
+import { createPrismaClient, type JobWithMetadata } from '@helpdesk/db';
 import type { ResolveTicketJob } from '@helpdesk/shared';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -232,8 +232,16 @@ describe('resolveTicket', () => {
 });
 
 describe('resolveTicketJobs', () => {
-  function job(id: string) {
-    return { id: `job-${id}`, data: { ticketId: id } } as Job<ResolveTicketJob>;
+  const aiAgentId = '0199a000-0000-7000-8000-0000000000ff';
+
+  /** A pg-boss job (with metadata) for `id`, on retry `retryCount` of `retryLimit`. */
+  function job(id: string, { retryCount = 0, retryLimit = 8 } = {}) {
+    return {
+      id: `job-${id}`,
+      data: { ticketId: id },
+      retryCount,
+      retryLimit,
+    } as JobWithMetadata<ResolveTicketJob>;
   }
 
   async function knowledgeBaseFile(content: string) {
@@ -242,36 +250,116 @@ describe('resolveTicketJobs', () => {
     return pathToFileURL(path);
   }
 
+  /** Stubs the AI Agent lookup (`id` or none) and the unassigning UPDATE. */
+  function stubAiAgent(id: string | null = aiAgentId) {
+    vi.spyOn(prisma.user, 'findFirst').mockResolvedValue((id && { id }) as never);
+    return vi.spyOn(prisma, '$executeRaw').mockResolvedValue(1 as never);
+  }
+
+  async function runJob(j = job(ticketId)) {
+    const knowledgeBaseUrl = await knowledgeBaseFile('# Fresh KB');
+    return resolveTicketJobs(prisma, resolve, {
+      supportEmail: 'support@helpdesk.test',
+      knowledgeBaseUrl,
+    })([j]);
+  }
+
   it('answers each job from the knowledge base file', async () => {
     stubTicket(openTicket);
     stubResolve();
+    stubAiAgent();
     resolve.mockResolvedValue(resolvable);
     vi.spyOn(console, 'log').mockImplementation(() => {});
-    const knowledgeBaseUrl = await knowledgeBaseFile('# Fresh KB');
 
-    await resolveTicketJobs(prisma, resolve, {
-      supportEmail: 'support@helpdesk.test',
-      knowledgeBaseUrl,
-    })([job(ticketId)]);
+    await runJob();
 
     expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ knowledgeBase: '# Fresh KB' }));
   });
 
-  it('logs one line and throws when the AI fails, so pg-boss retries the job', async () => {
+  it('leaves a resolved ticket assigned to the AI Agent', async () => {
     stubTicket(openTicket);
     stubResolve();
+    const unassign = stubAiAgent();
+    resolve.mockResolvedValue(resolvable);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await runJob();
+
+    expect(unassign).not.toHaveBeenCalled();
+  });
+
+  it('unassigns a ticket the AI could not resolve from the AI Agent', async () => {
+    stubTicket(openTicket);
+    stubResolve();
+    const unassign = stubAiAgent();
+    resolve.mockResolvedValue({ resolvable: false, reason: 'Needs a refund', reply: '' });
+    const logged = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await runJob();
+
+    expect(unassign).toHaveBeenCalledOnce();
+    const [sql, ...values] = unassign.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+    expect(sql.join('?')).toContain('"assignedToId" = NULL');
+    expect(values).toEqual([ticketId, aiAgentId]);
+    expect(logged).toHaveBeenCalledWith(
+      `[resolve-ticket] ticket ${ticketId}: unassigned from the AI Agent`,
+    );
+  });
+
+  it('unassigns a skipped ticket from the AI Agent', async () => {
+    stubTicket({ ...openTicket, status: 'CLOSED' });
+    const unassign = stubAiAgent();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await runJob();
+
+    expect(unassign).toHaveBeenCalledOnce();
+  });
+
+  it('unassigns nothing when there is no active AI Agent', async () => {
+    stubTicket(openTicket);
+    stubResolve();
+    const unassign = stubAiAgent(null);
+    resolve.mockResolvedValue({ resolvable: false, reason: 'Not covered', reply: '' });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await runJob();
+
+    expect(unassign).not.toHaveBeenCalled();
+  });
+
+  it('logs one line and throws when the AI fails, keeping the assignment for the retry', async () => {
+    stubTicket(openTicket);
+    stubResolve();
+    const unassign = stubAiAgent();
     resolve.mockRejectedValue(new Error('quota exceeded\n    at someStackFrame'));
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const knowledgeBaseUrl = await knowledgeBaseFile('# KB');
 
-    await expect(
-      resolveTicketJobs(prisma, resolve, {
-        supportEmail: 'support@helpdesk.test',
-        knowledgeBaseUrl,
-      })([job(ticketId)]),
-    ).rejects.toThrow('quota exceeded');
+    await expect(runJob(job(ticketId, { retryCount: 2, retryLimit: 8 }))).rejects.toThrow(
+      'quota exceeded',
+    );
+
     expect(logged).toHaveBeenCalledExactlyOnceWith(
       `[resolve-ticket] ticket ${ticketId} failed: quota exceeded`,
     );
+    expect(unassign).not.toHaveBeenCalled();
+  });
+
+  it('unassigns the ticket when the last attempt fails, then still throws', async () => {
+    stubTicket(openTicket);
+    stubResolve();
+    const unassign = stubAiAgent();
+    resolve.mockRejectedValue(new Error('quota exceeded'));
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await expect(runJob(job(ticketId, { retryCount: 8, retryLimit: 8 }))).rejects.toThrow(
+      'quota exceeded',
+    );
+
+    expect(logged).toHaveBeenCalledWith(
+      `[resolve-ticket] ticket ${ticketId} failed for good: quota exceeded`,
+    );
+    expect(unassign).toHaveBeenCalledOnce();
   });
 });

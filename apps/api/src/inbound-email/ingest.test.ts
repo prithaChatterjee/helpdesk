@@ -95,6 +95,27 @@ describe('ingestInboundEmail', () => {
     expect(data?.messages?.create).toMatchObject({ bodyText: 'From HTML' });
   });
 
+  it('assigns a new ticket to assignToId', async () => {
+    const { createTicket } = stubDatabase();
+
+    await ingestInboundEmail(prisma, email(), { assignToId: TICKET_ID });
+
+    expect(createTicket.mock.calls[0]?.[0].data.assignedToId).toBe(TICKET_ID);
+  });
+
+  it('does not change the assignee of a ticket a reply is added to', async () => {
+    const { createTicket, updateTicket } = stubDatabase({
+      parent: { status: 'OPEN', customerEmail: 'jane@customer.test' },
+    });
+
+    await ingestInboundEmail(prisma, email({ inReplyTo: '<m1@customer.test>' }), {
+      assignToId: TICKET_ID,
+    });
+
+    expect(createTicket).not.toHaveBeenCalled();
+    expect(updateTicket.mock.calls[0]?.[0].data).not.toHaveProperty('assignedToId');
+  });
+
   it('adds a reply to the open ticket it answers', async () => {
     const { createTicket, createMessage, updateTicket, findFirst } = stubDatabase({
       parent: { status: 'OPEN', customerEmail: 'jane@customer.test' },

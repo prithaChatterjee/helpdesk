@@ -1,7 +1,7 @@
 import { type ClassifyTicketJob, JOB_QUEUES, type ResolveTicketJob } from '@helpdesk/shared';
 import { PgBoss, type QueueOptions } from 'pg-boss';
 
-export type { Job } from 'pg-boss';
+export type { Job, JobWithMetadata } from 'pg-boss';
 export type JobQueueClient = PgBoss;
 
 /**

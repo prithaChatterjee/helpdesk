@@ -13,10 +13,12 @@ const NO_SUBJECT = '(no subject)';
 /**
  * Turns an email received at the support address into a ticket, or adds it to the ticket it
  * replies to. Safe to call again for the same email (duplicate deliveries are ignored).
+ * `assignToId` assigns a newly created ticket (not a reply), e.g. to the AI Agent.
  */
 export async function ingestInboundEmail(
   prisma: PrismaClient,
   email: InboundEmail,
+  { assignToId }: { assignToId?: string } = {},
 ): Promise<InboundEmailResponse> {
   const autoReply = detectAutoReply(email);
   if (autoReply) return { result: 'ignored', reason: autoReply };
@@ -58,6 +60,7 @@ export async function ingestInboundEmail(
         subject: email.subject.trim() || NO_SUBJECT,
         customerEmail: email.from.email,
         customerName: email.from.name || null,
+        assignedToId: assignToId,
         messages: { create: message },
       },
       select: { id: true },
