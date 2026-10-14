@@ -5,6 +5,7 @@ import type { Auth } from './auth';
 import { requireAuth } from './middleware/require-auth';
 import { requireRole } from './middleware/require-role';
 import { assigneesRouter } from './routes/assignees';
+import { dashboardRouter } from './routes/dashboard';
 import { type EnqueueNewTicketJobs, inboundEmailRouter } from './routes/inbound-email';
 import { type TicketsAi, ticketsRouter } from './routes/tickets';
 import { usersRouter } from './routes/users';
@@ -45,6 +46,7 @@ export function createApp(auth: Auth, prisma: PrismaClient, config: AppConfig) {
   app.use('/api/users', requireAuth(auth), requireRole('ADMIN'), usersRouter(auth, prisma));
   app.use('/api/tickets', requireAuth(auth), ticketsRouter(prisma, config.ai));
   app.use('/api/assignees', requireAuth(auth), assigneesRouter(prisma));
+  app.use('/api/dashboard', requireAuth(auth), dashboardRouter(prisma));
 
   // Replaces Express's default handler, which sends stack traces unless NODE_ENV is production.
   // Client errors from body parsing (400 bad JSON, 413 too large) keep their status and message.

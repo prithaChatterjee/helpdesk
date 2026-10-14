@@ -172,12 +172,12 @@ Goal: Agents get a summary and a draft reply for each ticket.
 
 Goal: Admins and Agents see how support is performing.
 
-- [ ] 8.1 `GET /dashboard/stats` with date-range parameter
-- [ ] 8.2 Metrics: tickets by status, tickets by category, new tickets per day
+- [ ] 8.1 `GET /dashboard/stats` with date-range parameter — `GET /api/dashboard/stats` exists (all time); date range still to do
+- [ ] 8.2 Metrics: tickets by status, tickets by category, new tickets per day — status, category and resolved-by-AI done; per day still to do
 - [ ] 8.3 Metrics: average first response time, average time to resolve
 - [ ] 8.4 Metrics: AI suggestion usage rate (used / edited / discarded), AI category override rate
 - [ ] 8.5 Frontend: stat tiles row (open count, resolved today, avg first response time)
-- [ ] 8.6 Frontend: charts (tickets per day, by category, by status) with Recharts
+- [ ] 8.6 Frontend: charts (tickets per day, by category, by status) with Recharts — `/dashboard` has stat tiles (total, open, resolved, resolved by AI, with percentages), a by-category bar chart and a by-status pie; per day still to do
 - [ ] 8.7 Date range picker (today, 7 days, 30 days)
 - [ ] 8.8 Make dashboard the default landing page after login
 

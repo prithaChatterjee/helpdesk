@@ -140,6 +140,11 @@ Hand e2e work to the `e2e-tester` subagent (`.claude/agents/e2e-tester.md`) inst
 
   Without a provider, nothing calls the webhook on its own: curl (or a test) stands in for it. e2e covers it in `e2e/tests/tickets.spec.ts` with `E2E_INBOUND_EMAIL_SECRET` from `test-env.ts`.
 
+## Dashboard
+
+- `GET /api/dashboard/stats` (any signed-in role, `apps/api/src/routes/dashboard.ts`) returns `DashboardStatsResponse` (`packages/shared/src/dashboard.ts`), all time: `total`, `open`, `resolved`, `resolvedByAi`, `byStatus` (every status in `TICKET_STATUSES` order) and `byCategory` (every category in order, then `null` = not classified), zeros included. Two `groupBy`s and a `count` run in one `RepeatableRead` transaction so the numbers add up. "Resolved by AI" (`resolvedByAiWhere`) = Resolved tickets with an OUTBOUND message from `AI_SENDER_NAME` (`packages/shared/src/reply.ts`) with `sentByUserId` null and no OUTBOUND message from an Agent.
+- Web: `/dashboard` (`src/pages/dashboard-page.tsx`, nav link "Dashboard", both roles) is lazy-loaded in `App.tsx` with `DashboardSkeleton` as the Suspense fallback, so Recharts ships in its own chunk. It refetches every 30 s. `components/dashboard/`: `StatTiles` (open and resolved as `percentOf` all tickets, AI as a share of _resolved_), `CategoryBarChart` (one series, `--chart-1`, counts labelled on the bars, full labels in the tooltip, `sr-only` table) and `StatusPieChart` (3 slices in categorical slots 1–3, 2px `--card` gap, a legend list with count and % per status; "No tickets yet." when empty). Charts use shadcn `components/ui/chart.tsx` (`ChartContainer` + `ChartConfig`, colors via `var(--color-<key>)`); the `--chart-1…4` colors in `index.css` were checked for color-vision separation on both card surfaces. The SVG charts are `aria-hidden`; their table/legend carry the numbers, which is also what component tests assert (Recharts can't measure in jsdom).
+
 ## Conventions
 
 - `@helpdesk/shared` exports **TypeScript source** (no build step). Vite/tsx compile it; tsdown bundles it into api/worker (`deps.alwaysBundle`).

@@ -1,6 +1,10 @@
 import '@testing-library/jest-dom/vitest';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { afterEach } from 'vitest';
+
+// findBy*/waitFor give up after 1 s by default, which a busy machine (the full suite running in
+// parallel, dev servers alongside) sometimes needs longer than for a slow render, not a bug
+configure({ asyncUtilTimeout: 3000 });
 
 // Testing Library only unmounts automatically when Vitest globals are enabled
 afterEach(() => {

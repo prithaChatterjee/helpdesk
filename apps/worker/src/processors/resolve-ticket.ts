@@ -7,6 +7,7 @@ import {
 } from '@helpdesk/db';
 import {
   addGreetingAndSignOff,
+  AI_SENDER_NAME,
   AI_SIGNATURE,
   AI_TIMEOUT_MS,
   MessageDirection,
@@ -15,9 +16,6 @@ import {
 } from '@helpdesk/shared';
 import { generateText, type LanguageModel, Output } from 'ai';
 import { z } from 'zod';
-
-/** Sender name of AI replies in the thread */
-export const AI_SENDER_NAME = 'Support (AI)';
 
 /** Longest customer email the resolver reads, in characters */
 export const RESOLVE_MAX_MESSAGE_LENGTH = 5_000;

@@ -3,11 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createPrismaClient, type JobWithMetadata } from '@helpdesk/db';
-import type { ResolveTicketJob } from '@helpdesk/shared';
+import { AI_SENDER_NAME, type ResolveTicketJob } from '@helpdesk/shared';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  AI_SENDER_NAME,
   createTicketResolver,
   RESOLVE_MAX_MESSAGE_LENGTH,
   type ResolveDecision,

@@ -1,6 +1,7 @@
 // Browser-safe exports only. Node-only helpers live in subpath exports (e.g. @helpdesk/shared/env).
 export * from './ai';
 export * from './auth';
+export * from './dashboard';
 export * from './domain';
 export * from './inbound-email';
 export * from './pagination';

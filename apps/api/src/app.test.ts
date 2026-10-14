@@ -1868,3 +1868,107 @@ describe('POST /api/webhooks/inbound-email AI jobs', () => {
     expect(values).toEqual([ticketId, aiAgentId]);
   });
 });
+
+describe('GET /api/dashboard/stats', () => {
+  /** Stubs the snapshot transaction's three results; its queries are lazy, so they never run. */
+  function stubStats({
+    statuses = [] as { status: string; count: number }[],
+    categories = [] as { category: string | null; count: number }[],
+    resolvedByAi = 0,
+  } = {}) {
+    const groupBy = vi.spyOn(prisma.ticket, 'groupBy').mockReturnValue('groupBy' as never);
+    const count = vi.spyOn(prisma.ticket, 'count').mockReturnValue('count' as never);
+    const transaction = vi
+      .spyOn(prisma, '$transaction')
+      .mockResolvedValue([
+        statuses.map(({ status, count }) => ({ status, _count: { _all: count } })),
+        categories.map(({ category, count }) => ({ category, _count: { _all: count } })),
+        resolvedByAi,
+      ] as never);
+    return { groupBy, count, transaction };
+  }
+
+  it('returns 401 without a session cookie', async () => {
+    const res = await request(app).get('/api/dashboard/stats');
+    expect(res.status).toBe(401);
+  });
+
+  it.each(['ADMIN', 'AGENT'] as const)('returns the ticket counts for an %s', async (role) => {
+    signInAs(role);
+    stubStats({
+      statuses: [
+        { status: 'OPEN', count: 6 },
+        { status: 'RESOLVED', count: 3 },
+        { status: 'CLOSED', count: 1 },
+      ],
+      categories: [
+        { category: 'GENERAL', count: 4 },
+        { category: 'REFUND', count: 2 },
+        { category: null, count: 4 },
+      ],
+      resolvedByAi: 2,
+    });
+
+    const res = await request(app).get('/api/dashboard/stats');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      total: 10,
+      open: 6,
+      resolved: 3,
+      resolvedByAi: 2,
+      byStatus: [
+        { status: 'OPEN', count: 6 },
+        { status: 'RESOLVED', count: 3 },
+        { status: 'CLOSED', count: 1 },
+      ],
+      // Every category in order, with 0 for one that has no tickets, then the unclassified ones
+      byCategory: [
+        { category: 'GENERAL', count: 4 },
+        { category: 'TECHNICAL', count: 0 },
+        { category: 'REFUND', count: 2 },
+        { category: null, count: 4 },
+      ],
+    });
+  });
+
+  it('returns zeros when there are no tickets', async () => {
+    signInAs('AGENT');
+    stubStats();
+
+    const res = await request(app).get('/api/dashboard/stats');
+
+    expect(res.body).toMatchObject({ total: 0, open: 0, resolved: 0, resolvedByAi: 0 });
+    expect(res.body.byStatus).toHaveLength(3);
+    expect(res.body.byCategory).toHaveLength(4);
+  });
+
+  it('reads every count from one repeatable-read snapshot', async () => {
+    signInAs('AGENT');
+    const { groupBy, transaction } = stubStats();
+
+    await request(app).get('/api/dashboard/stats');
+
+    expect(transaction).toHaveBeenCalledWith(['groupBy', 'groupBy', 'count'], {
+      isolationLevel: 'RepeatableRead',
+    });
+    expect(groupBy.mock.calls.map(([args]) => args.by)).toEqual([['status'], ['category']]);
+  });
+
+  it('counts as resolved by AI only Resolved tickets with an AI reply and no Agent reply', async () => {
+    signInAs('AGENT');
+    const { count } = stubStats();
+
+    await request(app).get('/api/dashboard/stats');
+
+    expect(count).toHaveBeenCalledWith({
+      where: {
+        status: 'RESOLVED',
+        messages: {
+          some: { direction: 'OUTBOUND', sentByUserId: null, fromName: 'Support (AI)' },
+          none: { direction: 'OUTBOUND', sentByUserId: { not: null } },
+        },
+      },
+    });
+  });
+});

@@ -26,3 +26,9 @@ export function addGreetingAndSignOff(
 
 /** Sign-off name of replies the AI writes on its own, e.g. when it auto-resolves a ticket. */
 export const AI_SIGNATURE = 'The Support Team';
+
+/**
+ * Sender name of replies the AI writes on its own. With no Agent behind them (`sentByUserId` null)
+ * this is how AI replies are told apart, e.g. by the dashboard's "resolved by AI" count.
+ */
+export const AI_SENDER_NAME = 'Support (AI)';
