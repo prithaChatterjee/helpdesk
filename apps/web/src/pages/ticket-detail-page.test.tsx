@@ -97,6 +97,21 @@ describe('TicketDetailPage', () => {
     ).toBeGreaterThan(0);
   });
 
+  it("shows the ticket's saved summary", async () => {
+    mockFetch(
+      Response.json({ ticket: { ...detail.ticket, summary: 'Jane forgot her password.' } }),
+    );
+    renderPage();
+
+    const summary = (await screen.findByRole('heading', { name: 'Summary' })).closest(
+      '[data-slot="card"]',
+    );
+    expect(summary).not.toBeNull();
+    expect(
+      within(summary as HTMLElement).getByText('Jane forgot her password.'),
+    ).toBeInTheDocument();
+  });
+
   it('shows the thread in order, telling customer messages from replies', async () => {
     mockFetch(Response.json(detail));
     renderPage();

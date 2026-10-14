@@ -5,6 +5,7 @@ import { BackLink } from '@/components/common/back-link';
 import { ReplyThread } from '@/components/tickets/reply-thread';
 import { TicketDetailSkeleton } from '@/components/tickets/ticket-detail-skeleton';
 import { TicketDetailsCard } from '@/components/tickets/ticket-details-card';
+import { TicketSummaryCard } from '@/components/tickets/ticket-summary-card';
 import { Card, CardContent } from '@/components/ui/card';
 import { LoadError } from '@/components/common/load-error';
 import { ApiError, apiGet } from '@/lib/api';
@@ -49,7 +50,10 @@ function TicketDetailContent({ ticket }: { ticket: TicketDetail }) {
           ticket={ticket}
           className="lg:sticky lg:top-4 lg:col-start-2 lg:row-start-1"
         />
-        <ReplyThread ticket={ticket} className="lg:col-start-1 lg:row-start-1" />
+        <div className="space-y-4 lg:col-start-1 lg:row-start-1">
+          <TicketSummaryCard ticket={ticket} />
+          <ReplyThread ticket={ticket} />
+        </div>
       </div>
     </>
   );

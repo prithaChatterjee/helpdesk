@@ -2,7 +2,7 @@ import { createPrismaClient, Prisma } from '@helpdesk/db';
 import type { UserRole } from '@helpdesk/shared';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ReplyPolisher } from './routes/tickets';
+import type { ReplyPolisher, TicketSummarizer } from './routes/tickets';
 import { createApp } from './app';
 import { type AuthSession, createAuth } from './auth';
 
@@ -1456,7 +1456,7 @@ describe('POST /api/tickets/:id/replies/polish', () => {
   const replyPolisher = vi.fn<ReplyPolisher>();
   const polishApp = createApp(auth, prisma, {
     inboundEmailSecret: INBOUND_EMAIL_SECRET,
-    replyPolisher,
+    ai: { replyPolisher },
   });
 
   function stubTicket(
@@ -1606,6 +1606,133 @@ describe('POST /api/tickets/:id/replies/polish', () => {
 
     expect(res.status).toBe(503);
     expect(res.body).toEqual({ error: "Polishing replies isn't set up" });
+    expect(findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/tickets/:id/summary', () => {
+  const ticketId = '0199a000-0000-7000-8000-0000000000a1';
+  const ticketSummarizer = vi.fn<TicketSummarizer>();
+  const summaryApp = createApp(auth, prisma, {
+    inboundEmailSecret: INBOUND_EMAIL_SECRET,
+    ai: { ticketSummarizer },
+  });
+  const thread = {
+    subject: "Can't log in",
+    messages: [
+      {
+        direction: 'INBOUND',
+        fromName: 'Jane Doe',
+        fromEmail: 'jane@customer.test',
+        bodyText: 'I forgot my password',
+        createdAt: new Date('2026-10-01T10:00:00.000Z'),
+      },
+    ],
+  };
+
+  function stubTicket(ticket: unknown = thread) {
+    return vi.spyOn(prisma.ticket, 'findUnique').mockResolvedValue(ticket as never);
+  }
+
+  function stubSave() {
+    return vi.spyOn(prisma, '$executeRaw').mockResolvedValue(1 as never);
+  }
+
+  afterEach(() => {
+    ticketSummarizer.mockReset();
+  });
+
+  it('returns 401 without a session cookie', async () => {
+    const res = await request(summaryApp).post(`/api/tickets/${ticketId}/summary`);
+    expect(res.status).toBe(401);
+  });
+
+  it.each(['ADMIN', 'AGENT'] as const)('returns the new summary for an %s', async (role) => {
+    signInAs(role);
+    stubTicket();
+    stubSave();
+    ticketSummarizer.mockResolvedValue('Jane forgot her password.');
+
+    const res = await request(summaryApp).post(`/api/tickets/${ticketId}/summary`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ summary: 'Jane forgot her password.' });
+  });
+
+  it("summarizes the ticket's subject and whole thread, oldest first", async () => {
+    signInAs('AGENT');
+    const findUnique = stubTicket();
+    stubSave();
+    ticketSummarizer.mockResolvedValue('Summary');
+
+    await request(summaryApp).post(`/api/tickets/${ticketId}/summary`);
+
+    expect(ticketSummarizer).toHaveBeenCalledWith(thread);
+    expect(findUnique.mock.calls[0]?.[0]?.select?.messages).toMatchObject({
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+  });
+
+  it('saves the summary on the ticket without touching updatedAt', async () => {
+    signInAs('AGENT');
+    stubTicket();
+    const save = stubSave();
+    const update = vi.spyOn(prisma.ticket, 'update');
+    ticketSummarizer.mockResolvedValue('Jane forgot her password.');
+
+    await request(summaryApp).post(`/api/tickets/${ticketId}/summary`);
+
+    expect(update).not.toHaveBeenCalled();
+    const [sql, ...values] = save.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+    expect(sql.join('?')).toBe('UPDATE tickets SET summary = ? WHERE id = ?::uuid');
+    expect(values).toEqual(['Jane forgot her password.', ticketId]);
+  });
+
+  it('returns 404 for a ticket that does not exist', async () => {
+    signInAs('AGENT');
+    stubTicket(null);
+    const save = stubSave();
+
+    const res = await request(summaryApp).post(`/api/tickets/${ticketId}/summary`);
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Ticket not found' });
+    expect(ticketSummarizer).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 without querying for an id that is not a uuid', async () => {
+    signInAs('AGENT');
+    const findUnique = stubTicket();
+
+    const res = await request(summaryApp).post('/api/tickets/not-a-uuid/summary');
+
+    expect(res.status).toBe(404);
+    expect(findUnique).not.toHaveBeenCalled();
+  });
+
+  it('returns 502 and keeps the old summary when the model fails', async () => {
+    signInAs('AGENT');
+    stubTicket();
+    const save = stubSave();
+    ticketSummarizer.mockRejectedValue(new Error('OpenAI is down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await request(summaryApp).post(`/api/tickets/${ticketId}/summary`);
+
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: "Couldn't summarize the ticket. Try again." });
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('returns 503 when no summarizer is configured', async () => {
+    signInAs('AGENT');
+    const findUnique = stubTicket();
+
+    const res = await request(app).post(`/api/tickets/${ticketId}/summary`);
+
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: "Summarizing tickets isn't set up" });
     expect(findUnique).not.toHaveBeenCalled();
   });
 });

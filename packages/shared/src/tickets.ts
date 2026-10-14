@@ -119,6 +119,10 @@ export type PolishReplyInput = CreateReplyInput;
 export const polishReplyResponseSchema = z.object({ body: z.string() });
 export type PolishReplyResponse = z.infer<typeof polishReplyResponseSchema>;
 
+/** `POST /api/tickets/:id/summary`: the ticket's new AI summary, also saved on the ticket. */
+export const ticketSummaryResponseSchema = z.object({ summary: z.string() });
+export type TicketSummaryResponse = z.infer<typeof ticketSummaryResponseSchema>;
+
 export const INBOUND_EMAIL_RESULTS = ['created', 'appended', 'duplicate', 'ignored'] as const;
 
 /** What `POST /api/webhooks/inbound-email` did with the email. */
