@@ -4,19 +4,20 @@ import { inboundEmailSchema } from '@helpdesk/shared';
 import express, { type RequestHandler, Router } from 'express';
 import { ingestInboundEmail } from '../inbound-email/ingest';
 
-/** Queues a `classify-ticket` job for a new ticket, e.g. with pg-boss `send()`. */
-export type EnqueueTicketClassification = (ticketId: string) => Promise<unknown>;
+/** Queues the AI jobs for a new ticket (classify it, try to auto-resolve it), e.g. with pg-boss. */
+export type EnqueueNewTicketJobs = (ticketId: string) => Promise<unknown>;
 
 /**
  * Receives emails sent to the support address: `POST /` with an `InboundEmail` JSON body and
  * `Authorization: Bearer <secret>`. Mount before the app-wide express.json(), which has a smaller
  * body limit. Not behind requireAuth: the caller is the mail pipeline, not a signed-in user.
- * With `enqueueClassification`, each new ticket gets a `classify-ticket` job for the worker.
+ * With `enqueueNewTicketJobs`, each new ticket gets `classify-ticket` and `resolve-ticket` jobs for
+ * the worker.
  */
 export function inboundEmailRouter(
   prisma: PrismaClient,
   secret: string,
-  enqueueClassification?: EnqueueTicketClassification,
+  enqueueNewTicketJobs?: EnqueueNewTicketJobs,
 ) {
   const router = Router();
 
@@ -28,13 +29,13 @@ export function inboundEmailRouter(
       return;
     }
     const result = await ingestInboundEmail(prisma, parsed.data);
-    if (result.result === 'created' && result.ticketId && enqueueClassification) {
+    if (result.result === 'created' && result.ticketId && enqueueNewTicketJobs) {
       // Only queues the job (one quick insert); the worker calls the AI later. The ticket is
       // already saved, so a queue failure is logged and the email still counts as received.
       try {
-        await enqueueClassification(result.ticketId);
+        await enqueueNewTicketJobs(result.ticketId);
       } catch (err) {
-        console.error(`Couldn't queue classification of ticket ${result.ticketId}:`, err);
+        console.error(`Couldn't queue AI jobs for ticket ${result.ticketId}:`, err);
       }
     }
     res.status(result.result === 'created' ? 201 : 200).json(result);

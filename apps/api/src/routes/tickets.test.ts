@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   createReplyPolisher,
   createTicketSummarizer,
-  customerFirstName,
   SUMMARY_MAX_MESSAGE_LENGTH,
   SUMMARY_MAX_MESSAGES,
   type SummaryMessage,
@@ -36,22 +35,6 @@ const input = {
 function promptText(model: MockLanguageModelV4) {
   return JSON.stringify(model.doGenerateCalls[0]?.prompt);
 }
-
-describe('customerFirstName', () => {
-  it.each([
-    ['Jane Doe', 'Jane'],
-    ['Jane', 'Jane'],
-    ['  Mary Ann  Smith ', 'Mary'],
-    ['Doe, Jane', 'Jane'],
-    ['"Jane Doe"', 'Jane'],
-  ])('greets %j as %j', (name, first) => {
-    expect(customerFirstName(name)).toBe(first);
-  });
-
-  it.each([null, '', '   ', '""', 'Doe,'])('has no first name for %j', (name) => {
-    expect(customerFirstName(name)).toBeUndefined();
-  });
-});
 
 describe('createReplyPolisher', () => {
   it("greets the customer by first name and signs off with the Agent's full name", async () => {

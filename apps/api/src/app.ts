@@ -5,7 +5,7 @@ import type { Auth } from './auth';
 import { requireAuth } from './middleware/require-auth';
 import { requireRole } from './middleware/require-role';
 import { assigneesRouter } from './routes/assignees';
-import { type EnqueueTicketClassification, inboundEmailRouter } from './routes/inbound-email';
+import { type EnqueueNewTicketJobs, inboundEmailRouter } from './routes/inbound-email';
 import { type TicketsAi, ticketsRouter } from './routes/tickets';
 import { usersRouter } from './routes/users';
 
@@ -17,8 +17,8 @@ export interface AppConfig {
    * those routes return 503
    */
   ai?: TicketsAi;
-  /** Queues AI classification of each ticket the inbound email webhook creates */
-  enqueueTicketClassification?: EnqueueTicketClassification;
+  /** Queues AI classification and auto-resolution of each ticket the inbound email webhook creates */
+  enqueueNewTicketJobs?: EnqueueNewTicketJobs;
 }
 
 export function createApp(auth: Auth, prisma: PrismaClient, config: AppConfig) {
@@ -30,7 +30,7 @@ export function createApp(auth: Auth, prisma: PrismaClient, config: AppConfig) {
   // Parses its own (larger) bodies, after checking the webhook secret
   app.use(
     '/api/webhooks/inbound-email',
-    inboundEmailRouter(prisma, config.inboundEmailSecret, config.enqueueTicketClassification),
+    inboundEmailRouter(prisma, config.inboundEmailSecret, config.enqueueNewTicketJobs),
   );
   app.use(express.json({ limit: '1mb' }));
 

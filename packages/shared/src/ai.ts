@@ -14,3 +14,10 @@ export const AI_TIMEOUT_MS = 30_000;
  * backlog doesn't use up the quota that polishing and summarizing need
  */
 export const CLASSIFY_MODEL = 'gemini-3.5-flash-lite';
+
+/**
+ * Gemini model that answers tickets from the knowledge base and resolves them. The same model as
+ * classification: it works on free-tier keys, and the worker paces both job types together to stay
+ * under that model's per-minute quota
+ */
+export const RESOLVE_MODEL = CLASSIFY_MODEL;

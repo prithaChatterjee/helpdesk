@@ -1,5 +1,5 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { sendClassifyTicketJob, startJobQueue } from '@helpdesk/db';
+import { sendClassifyTicketJob, sendResolveTicketJob, startJobQueue } from '@helpdesk/db';
 import { AI_MODEL } from '@helpdesk/shared';
 import { createApp } from './app';
 import { createAuth } from './auth';
@@ -39,7 +39,11 @@ const jobs = await startJobQueue(env.DATABASE_URL);
 const server = createApp(auth, prisma, {
   inboundEmailSecret: env.INBOUND_EMAIL_SECRET,
   ai,
-  enqueueTicketClassification: (ticketId) => sendClassifyTicketJob(jobs, ticketId, 'newTicket'),
+  enqueueNewTicketJobs: (ticketId) =>
+    Promise.all([
+      sendClassifyTicketJob(jobs, ticketId, 'newTicket'),
+      sendResolveTicketJob(jobs, ticketId, 'newTicket'),
+    ]),
 }).listen(env.API_PORT, () => {
   console.log(`API listening on http://localhost:${env.API_PORT}`);
 });

@@ -1737,12 +1737,12 @@ describe('POST /api/tickets/:id/summary', () => {
   });
 });
 
-describe('POST /api/webhooks/inbound-email classification', () => {
+describe('POST /api/webhooks/inbound-email AI jobs', () => {
   const ticketId = '0199a000-0000-7000-8000-0000000000a1';
   const enqueue = vi.fn<(ticketId: string) => Promise<unknown>>();
   const queueApp = createApp(auth, prisma, {
     inboundEmailSecret: INBOUND_EMAIL_SECRET,
-    enqueueTicketClassification: enqueue,
+    enqueueNewTicketJobs: enqueue,
   });
   const inboundEmail = {
     messageId: '<m1@customer.test>',
@@ -1768,7 +1768,7 @@ describe('POST /api/webhooks/inbound-email classification', () => {
     enqueue.mockReset();
   });
 
-  it('queues classification of a new ticket', async () => {
+  it('queues the AI jobs for a new ticket', async () => {
     stubNewTicket();
     enqueue.mockResolvedValue('job-1');
 
@@ -1799,7 +1799,7 @@ describe('POST /api/webhooks/inbound-email classification', () => {
 
     expect(res.status).toBe(201);
     expect(logged).toHaveBeenCalledWith(
-      `Couldn't queue classification of ticket ${ticketId}:`,
+      `Couldn't queue AI jobs for ticket ${ticketId}:`,
       expect.any(Error),
     );
   });

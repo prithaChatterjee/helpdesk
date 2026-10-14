@@ -4,7 +4,7 @@ Based on `project-scope.md` and `tech-stack.md`. Each phase ends with something 
 
 ## Assumptions (until the open questions are answered)
 
-- **AI does not auto-send.** AI drafts a reply; an Agent reviews, edits, and sends. Auto-send can be added later per category.
+- **AI auto-resolves only what the knowledge base answers.** When `apps/worker/knowledge-base.md` fully answers a new ticket and nobody needs to act (no refund, account change, bug or complaint), the AI saves a reply and resolves it; everything else stays Open for an Agent (decided October 2026, replacing "AI does not auto-send").
 - **All Agents see all tickets.** A ticket can be assigned (manually, from the ticket page) to one active Admin or Agent, or left unassigned; assignment doesn't restrict who can see or edit it. Deleting an Agent unassigns their tickets. No teams or automatic routing in the first release.
 - **Status meaning:** Open = needs attention; Resolved = reply sent; Closed = final (manual, or automatic after N days in Resolved). A customer reply on a Resolved ticket reopens it; on a Closed ticket it creates a new ticket.
 - **Category is nullable** until AI classifies it. Agents can change the category manually.
@@ -208,7 +208,7 @@ Goal: the system is safe to run in production.
 
 ## Later (not in the first release)
 
-- AI auto-send for selected categories, once suggestion accuracy is proven
+- Email AI replies to customers once an email provider is set up (auto-resolve saves them to the thread only); measure how often customers reopen auto-resolved tickets
 - Automatic assignment, teams and routing (manual assignment is in the first release)
 - Internal notes on tickets
 - Attachments (storage, virus scanning)

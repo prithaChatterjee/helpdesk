@@ -5,6 +5,7 @@ export * from './domain';
 export * from './inbound-email';
 export * from './pagination';
 export * from './queues';
+export * from './reply';
 export * from './sorting';
 export * from './tickets';
 export * from './users';

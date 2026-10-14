@@ -1,13 +1,21 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { startJobQueue } from '@helpdesk/db';
-import { CLASSIFY_MODEL, type ClassifyTicketJob, JOB_QUEUES, QUEUE_NAMES } from '@helpdesk/shared';
+import {
+  CLASSIFY_MODEL,
+  type ClassifyTicketJob,
+  JOB_QUEUES,
+  QUEUE_NAMES,
+  RESOLVE_MODEL,
+  type ResolveTicketJob,
+} from '@helpdesk/shared';
 import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { prisma } from './db';
 import { env } from './env';
 import { classifyTicketJobs, createTicketClassifier } from './processors/classify-ticket';
 import { processMaintenanceJob } from './processors/maintenance';
-import { spaceCalls } from './space-calls';
+import { createTicketResolver, resolveTicketJobs } from './processors/resolve-ticket';
+import { createPacer } from './pacer';
 
 // BullMQ workers require maxRetriesPerRequest: null on their Redis connection
 const connection = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
@@ -31,22 +39,31 @@ console.log(`Worker started, listening on queues: ${workers.map((w) => w.name).j
 const jobs = await startJobQueue(env.DATABASE_URL);
 if (env.GOOGLE_GENERATIVE_AI_API_KEY) {
   // Explicit key from the validated env, rather than the provider reading process.env itself
-  const model = createGoogleGenerativeAI({ apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY })(
-    CLASSIFY_MODEL,
-  );
-  // Paced to stay under the per-minute quota; pg-boss runs one job at a time by default
-  const classify = spaceCalls(createTicketClassifier(model), 60_000 / env.AI_REQUESTS_PER_MINUTE);
+  const google = createGoogleGenerativeAI({ apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY });
+  // One pacer for every AI call: both job types use the same model and so the same per-minute quota
+  const pace = createPacer(60_000 / env.AI_REQUESTS_PER_MINUTE);
+  const classifier = createTicketClassifier(google(CLASSIFY_MODEL));
+  const resolver = createTicketResolver(google(RESOLVE_MODEL));
+
   await jobs.work<ClassifyTicketJob>(
     JOB_QUEUES.classifyTicket,
-    classifyTicketJobs(prisma, classify),
+    classifyTicketJobs(prisma, (input) => pace(() => classifier(input))),
+  );
+  await jobs.work<ResolveTicketJob>(
+    JOB_QUEUES.resolveTicket,
+    resolveTicketJobs(prisma, (input) => pace(() => resolver(input)), {
+      supportEmail: env.SUPPORT_EMAIL,
+      // apps/worker/knowledge-base.md, from src/index.ts and from the bundled dist/index.mjs
+      knowledgeBaseUrl: new URL('../knowledge-base.md', import.meta.url),
+    }),
   );
   console.log(
-    `Worker listening on job queue: ${JOB_QUEUES.classifyTicket} ` +
-      `(${CLASSIFY_MODEL}, up to ${env.AI_REQUESTS_PER_MINUTE} requests per minute)`,
+    `Worker listening on job queues: ${JOB_QUEUES.classifyTicket}, ${JOB_QUEUES.resolveTicket} ` +
+      `(${CLASSIFY_MODEL}, up to ${env.AI_REQUESTS_PER_MINUTE} AI requests per minute)`,
   );
 } else {
   console.warn(
-    'GOOGLE_GENERATIVE_AI_API_KEY is not set: classify-ticket jobs wait in the queue until it is',
+    'GOOGLE_GENERATIVE_AI_API_KEY is not set: classify-ticket and resolve-ticket jobs wait in the queue until it is',
   );
 }
 

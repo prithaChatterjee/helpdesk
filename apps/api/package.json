@@ -10,7 +10,8 @@
     "typecheck": "tsc",
     "db:seed": "tsx --env-file-if-exists=../../.env src/seed.ts",
     "seed": "node dist/seed.mjs",
-    "tickets:classify": "tsx --env-file-if-exists=../../.env src/classify-tickets.ts"
+    "tickets:classify": "tsx --env-file-if-exists=../../.env src/classify-tickets.ts",
+    "tickets:auto-resolve": "tsx --env-file-if-exists=../../.env src/auto-resolve-tickets.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.95",
