@@ -1493,7 +1493,7 @@ describe('POST /api/tickets/:id/replies/polish', () => {
     expect(res.body).toEqual({ body: 'Hi Jane, here is a reset link.' });
   });
 
-  it("sends the trimmed draft with the ticket's subject, customer and latest email", async () => {
+  it("sends the trimmed draft with the ticket, the customer's latest email and the Agent's name", async () => {
     signInAs('AGENT');
     const findUnique = stubTicket();
     replyPolisher.mockResolvedValue('Polished');
@@ -1507,6 +1507,8 @@ describe('POST /api/tickets/:id/replies/polish', () => {
       subject: "Can't log in",
       customerName: 'Jane Doe',
       customerMessage: 'I forgot my password',
+      // The signed-in user from signInAs
+      agentName: 'Test User',
     });
     expect(findUnique.mock.calls[0]?.[0]?.select?.messages).toMatchObject({
       where: { direction: 'INBOUND' },
