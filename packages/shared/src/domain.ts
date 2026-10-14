@@ -48,3 +48,13 @@ export const MESSAGE_DIRECTIONS = ['INBOUND', 'OUTBOUND'] as const;
 export const messageDirectionSchema = z.enum(MESSAGE_DIRECTIONS);
 export const MessageDirection = messageDirectionSchema.enum;
 export type MessageDirection = z.infer<typeof messageDirectionSchema>;
+
+/**
+ * Whether an outbound message was emailed to the customer: queued (`PENDING`), accepted by the
+ * email provider (`SENT`) or given up on (`FAILED`). `null` on inbound messages and on replies saved
+ * while email sending is off.
+ */
+export const DELIVERY_STATUSES = ['PENDING', 'SENT', 'FAILED'] as const;
+export const deliveryStatusSchema = z.enum(DELIVERY_STATUSES);
+export const DeliveryStatus = deliveryStatusSchema.enum;
+export type DeliveryStatus = z.infer<typeof deliveryStatusSchema>;

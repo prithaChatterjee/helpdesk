@@ -79,7 +79,7 @@ Goal: incoming emails become tickets.
 
 - [x] 3.1 Prisma models: `Ticket` (id, subject, status `OPEN | RESOLVED | CLOSED`, category `GENERAL | TECHNICAL | REFUND` nullable, customerEmail, customerName, summary, timestamps) and `Message` (id, ticketId, direction `INBOUND | OUTBOUND`, fromEmail, bodyText, bodyHtml, emailMessageId, sentByUserId nullable, createdAt)
 - [x] 3.2 Add shared Zod schemas and enums in `packages/shared`
-- [ ] 3.3 Set up Postmark inbound stream and a local tunnel for development (e.g. ngrok) — no provider chosen yet; the webhook takes a provider-neutral JSON shape (`inboundEmailSchema`), so a provider adapter only maps its payload to it
+- [ ] 3.3 Set up the inbound email provider and a local tunnel for development (ngrok) — SendGrid chosen; the Inbound Parse adapter (`POST /api/webhooks/sendgrid/inbound?token=`) is built and tested, ngrok works. Still needed: a domain (or subdomain) whose MX record points to `mx.sendgrid.net`, and the Inbound Parse setting in SendGrid
 - [x] 3.4 `POST /api/webhooks/inbound-email`: verify webhook authenticity (`Authorization: Bearer INBOUND_EMAIL_SECRET`)
 - [x] 3.5 Webhook stores the raw payload and enqueues an `ingest-email` job (respond quickly, process async) — done synchronously for now: the API creates the ticket in the request (no queue, no raw payload stored). Move to a worker job if ingestion gets slow
 - [x] 3.6 Worker `ingest-email`: parse sender, subject, plain text and HTML body — in the API (`apps/api/src/inbound-email/ingest.ts`)
@@ -119,11 +119,11 @@ Goal: Agents can find and read tickets.
 
 Goal: Agents reply to customers from the app.
 
-- [ ] 5.1 Configure Postmark sending domain (SPF, DKIM, Return-Path DNS records)
-- [ ] 5.2 `POST /tickets/:id/replies`: save outbound message, enqueue `send-email` job (saving done: replies are stored, not queued or emailed yet)
-- [ ] 5.3 Worker `send-email`: send via Postmark with correct `In-Reply-To` / `References` headers so the customer's mail client threads it
-- [ ] 5.4 Store the outbound `Message-ID`; mark message as sent or failed
-- [ ] 5.5 Retry with backoff on send failure; show failed state in UI
+- [ ] 5.1 Configure the SendGrid sending domain (Domain Authentication: SPF/DKIM CNAME records) — for now a Single Sender (`SUPPORT_EMAIL`) is verified instead, which is enough to send
+- [x] 5.2 `POST /tickets/:id/replies`: save outbound message, enqueue `send-email` job (pg-boss; only with `EMAIL_SENDING_ENABLED`)
+- [x] 5.3 Worker `send-email`: send via SendGrid with correct `In-Reply-To` / `References` headers so the customer's mail client threads it
+- [x] 5.4 Store the outbound `Message-ID`; mark message as sent or failed
+- [x] 5.5 Retry with backoff on send failure; show failed state in UI (no resend button yet)
 - [ ] 5.6 Set ticket status to Resolved after a successful reply (Agent can override)
 - [x] 5.7 Frontend: reply editor on ticket detail page
 - [x] 5.8 Record which Agent sent each reply (`sentByUserId`)
@@ -208,7 +208,8 @@ Goal: the system is safe to run in production.
 
 ## Later (not in the first release)
 
-- Email AI replies to customers once an email provider is set up (auto-resolve saves them to the thread only); measure how often customers reopen auto-resolved tickets
+- Measure how often customers reopen auto-resolved tickets (AI replies are emailed with `EMAIL_SENDING_ENABLED`)
+- Resend a reply that failed to send; verify SendGrid Inbound Parse posts with its signed-webhook security policy instead of a URL token
 - Automatic assignment, teams and routing (manual assignment is in the first release)
 - Internal notes on tickets
 - Attachments (storage, virus scanning)

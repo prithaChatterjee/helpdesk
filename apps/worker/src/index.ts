@@ -1,5 +1,5 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { startJobQueue } from '@helpdesk/db';
+import { sendSendEmailJob, startJobQueue } from '@helpdesk/db';
 import {
   CLASSIFY_MODEL,
   type ClassifyTicketJob,
@@ -14,6 +14,7 @@ import { env } from './env';
 import { classifyTicketJobs, createTicketClassifier } from './processors/classify-ticket';
 import { processMaintenanceJob } from './processors/maintenance';
 import { createTicketResolver, resolveTicketJobs } from './processors/resolve-ticket';
+import { createSendGridSender, sendEmailJobs } from './processors/send-email';
 import { createPacer } from './pacer';
 
 // BullMQ workers require maxRetriesPerRequest: null on their Redis connection
@@ -36,6 +37,28 @@ console.log(`Worker started, listening on queues: ${workers.map((w) => w.name).j
 
 // pg-boss queues live in PostgreSQL, so they run even without Redis
 const jobs = await startJobQueue(env.DATABASE_URL);
+
+// Emails replies to customers with SendGrid; off, replies are only saved to the thread
+const enqueueSendEmail =
+  env.EMAIL_SENDING_ENABLED && env.SENDGRID_API_KEY
+    ? (messageId: string) => sendSendEmailJob(jobs, messageId)
+    : undefined;
+if (env.EMAIL_SENDING_ENABLED && env.SENDGRID_API_KEY) {
+  await jobs.work(
+    JOB_QUEUES.sendEmail,
+    // Metadata (retryCount/retryLimit) tells the handler when a failure is the last attempt
+    { includeMetadata: true },
+    sendEmailJobs(prisma, createSendGridSender(env.SENDGRID_API_KEY), {
+      supportEmail: env.SUPPORT_EMAIL,
+      replyTo: env.EMAIL_REPLY_TO,
+    }),
+  );
+  console.log(
+    `Worker listening on job queue: ${JOB_QUEUES.sendEmail} (SendGrid, from ${env.SUPPORT_EMAIL})`,
+  );
+} else {
+  console.warn('EMAIL_SENDING_ENABLED is off: replies are saved to tickets but not emailed');
+}
 if (env.GOOGLE_GENERATIVE_AI_API_KEY) {
   // Explicit key from the validated env, rather than the provider reading process.env itself
   const google = createGoogleGenerativeAI({ apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY });
@@ -56,6 +79,7 @@ if (env.GOOGLE_GENERATIVE_AI_API_KEY) {
       supportEmail: env.SUPPORT_EMAIL,
       // apps/worker/knowledge-base.md, from src/index.ts and from the bundled dist/index.mjs
       knowledgeBaseUrl: new URL('../knowledge-base.md', import.meta.url),
+      enqueueSendEmail,
     }),
   );
   console.log(

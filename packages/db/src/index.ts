@@ -9,6 +9,7 @@ export {
   type JobReason,
   sendClassifyTicketJob,
   sendResolveTicketJob,
+  sendSendEmailJob,
   startJobQueue,
 } from './jobs';
 export * from './generated/prisma/client';

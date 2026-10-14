@@ -1,4 +1,4 @@
-import type { TicketDetailResponse } from '@helpdesk/shared';
+import type { DeliveryStatus, TicketDetailResponse } from '@helpdesk/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
@@ -26,6 +26,7 @@ const detail: TicketDetailResponse = {
         fromEmail: 'jane@customer.test',
         fromName: 'Jane Doe',
         bodyText: 'I forgot my password.\nCan you help?',
+        deliveryStatus: null,
         createdAt: '2026-10-01T10:00:00.000Z',
       },
       {
@@ -34,6 +35,7 @@ const detail: TicketDetailResponse = {
         fromEmail: 'alan@helpdesk.test',
         fromName: 'Alan Agent',
         bodyText: 'Here is a reset link.',
+        deliveryStatus: null,
         createdAt: '2026-10-02T10:00:00.000Z',
       },
     ],
@@ -151,5 +153,63 @@ describe('TicketDetailPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       "Couldn't load the ticket: Internal Server Error",
     );
+  });
+
+  describe('while a reply is being emailed', () => {
+    /** The ticket with its reply in delivery status `status`. */
+    function withReply(status: DeliveryStatus | null): TicketDetailResponse {
+      const [first, reply] = detail.ticket.messages;
+      return {
+        ticket: {
+          ...detail.ticket,
+          messages: [first!, { ...reply!, deliveryStatus: status }],
+        },
+      };
+    }
+
+    /** Answers the ticket request with each of `responses` in turn (the last one repeats). */
+    function mockTicketResponses(...responses: TicketDetailResponse[]) {
+      let calls = 0;
+      return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        if (String(input) !== `/api/tickets/${ticketId}`) return Response.json({});
+        return Response.json(responses[Math.min(calls++, responses.length - 1)]);
+      });
+    }
+
+    function ticketRequests(fetchSpy: ReturnType<typeof mockTicketResponses>) {
+      return fetchSpy.mock.calls.filter(([input]) => String(input) === `/api/tickets/${ticketId}`);
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('checks back until the reply is emailed', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      mockTicketResponses(withReply('PENDING'), withReply('SENT'));
+      renderPage();
+
+      const reply = await screen.findByRole('article', { name: 'Reply from Alan Agent' });
+      expect(reply).toHaveTextContent('Sending…');
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(
+        await within(
+          await screen.findByRole('article', { name: 'Reply from Alan Agent' }),
+        ).findByText(/Emailed/),
+      ).toBeInTheDocument();
+    });
+
+    it('does not check back when nothing is being sent', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const fetchSpy = mockTicketResponses(withReply('SENT'));
+      renderPage();
+      await screen.findByRole('heading', { name: "Can't log in" });
+
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(ticketRequests(fetchSpy)).toHaveLength(1);
+    });
   });
 });

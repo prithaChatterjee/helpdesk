@@ -10,6 +10,7 @@ import {
   AI_SENDER_NAME,
   AI_SIGNATURE,
   AI_TIMEOUT_MS,
+  DeliveryStatus,
   MessageDirection,
   type ResolveTicketJob,
   TicketStatus,
@@ -82,19 +83,22 @@ export interface ResolveTicketOptions {
   knowledgeBase: string;
   /** `fromEmail` of the AI's reply: the support address */
   supportEmail: string;
+  /** Queues emailing the AI's reply to the customer (a `send-email` job); unset, it is only saved */
+  enqueueSendEmail?: (messageId: string) => Promise<unknown>;
 }
 
 /**
  * Tries to answer a ticket from the knowledge base. Only an Open ticket nobody has replied to yet
  * is considered. When the AI says the knowledge base fully answers it, its reply is saved to the
- * thread (signed by `AI_SIGNATURE`, not emailed yet) and the ticket is set to Resolved; a customer
+ * thread (signed by `AI_SIGNATURE`, and emailed with `enqueueSendEmail`) and the ticket is set to
+ * Resolved; a customer
  * reply reopens it. Otherwise the ticket stays open for an Agent. Throws when the AI call fails.
  */
 export async function resolveTicket(
   prisma: PrismaClient,
   resolve: TicketResolver,
   ticketId: string,
-  { knowledgeBase, supportEmail }: ResolveTicketOptions,
+  { knowledgeBase, supportEmail, enqueueSendEmail }: ResolveTicketOptions,
 ): Promise<ResolveOutcome> {
   const ticket = await prisma.ticket.findUnique({
     where: { id: ticketId },
@@ -122,7 +126,7 @@ export async function resolveTicket(
   const reply = decision.reply.trim();
   if (!decision.resolvable || !reply) return { result: 'kept-open', reason: decision.reason };
 
-  const resolved = await prisma.$transaction(async (tx) => {
+  const replyId = await prisma.$transaction(async (tx) => {
     // Still open and unanswered: an Agent may have replied or changed it while the AI was working
     const { count } = await tx.ticket.updateMany({
       where: {
@@ -132,21 +136,35 @@ export async function resolveTicket(
       },
       data: { status: TicketStatus.RESOLVED },
     });
-    if (count === 0) return false;
-    await tx.message.create({
+    if (count === 0) return null;
+    const message = await tx.message.create({
       data: {
         ticketId,
         direction: MessageDirection.OUTBOUND,
         fromEmail: supportEmail,
         fromName: AI_SENDER_NAME,
         bodyText: addGreetingAndSignOff(reply, ticket.customerName, AI_SIGNATURE),
+        ...(enqueueSendEmail && { deliveryStatus: DeliveryStatus.PENDING }),
       },
+      select: { id: true },
     });
-    return true;
+    return message.id;
   });
-  return resolved
-    ? { result: 'resolved' }
-    : { result: 'skipped', reason: 'answered or changed meanwhile' };
+  if (!replyId) return { result: 'skipped', reason: 'answered or changed meanwhile' };
+
+  if (enqueueSendEmail) {
+    // The ticket is resolved either way; if the email can't be queued, Agents see it wasn't sent
+    try {
+      await enqueueSendEmail(replyId);
+    } catch (err) {
+      console.error(`[resolve-ticket] couldn't queue sending message ${replyId}:`, err);
+      await prisma.message.update({
+        where: { id: replyId },
+        data: { deliveryStatus: DeliveryStatus.FAILED, deliveryError: "Couldn't queue the email" },
+      });
+    }
+  }
+  return { result: 'resolved' };
 }
 
 /**
@@ -163,8 +181,10 @@ export function resolveTicketJobs(
   {
     supportEmail,
     knowledgeBaseUrl,
+    enqueueSendEmail,
   }: {
     supportEmail: string;
+    enqueueSendEmail?: ResolveTicketOptions['enqueueSendEmail'];
     /** The Markdown file the AI answers from (`apps/worker/knowledge-base.md`) */
     knowledgeBaseUrl: URL;
   },
@@ -182,7 +202,11 @@ export function resolveTicketJobs(
       const { ticketId } = job.data;
       let outcome;
       try {
-        outcome = await resolveTicket(prisma, resolve, ticketId, { knowledgeBase, supportEmail });
+        outcome = await resolveTicket(prisma, resolve, ticketId, {
+          knowledgeBase,
+          supportEmail,
+          enqueueSendEmail,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message.split('\n')[0] : String(err);
         const lastAttempt = job.retryCount >= job.retryLimit;

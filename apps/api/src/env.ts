@@ -23,6 +23,9 @@ const envSchema = z
     // Gemini API key (Google AI Studio) for polishing replies and summarizing tickets; without it
     // those buttons return an error
     GOOGLE_GENERATIVE_AI_API_KEY: z.string().min(1).optional(),
+    // Queue a send-email job for each Agent reply (the worker emails it with SendGrid). Off: replies
+    // are only saved to the thread, so test tickets with made-up addresses are never emailed.
+    EMAIL_SENDING_ENABLED: z.stringbool().default(false),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;

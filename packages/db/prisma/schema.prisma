@@ -111,6 +111,13 @@ enum MessageDirection {
   OUTBOUND
 }
 
+/// Whether an outbound message was emailed to the customer
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
 /// A customer conversation, created from the first inbound email.
 model Ticket {
   id            String          @id @default(uuid(7)) @db.Uuid
@@ -155,6 +162,12 @@ model Message {
   /// The Agent who sent an outbound message
   sentByUserId   String?          @db.Uuid
   sentBy         User?            @relation(fields: [sentByUserId], references: [id], onDelete: SetNull)
+  /// Outbound only: null when it was saved while email sending was off
+  deliveryStatus DeliveryStatus?
+  /// Why the last send attempt failed (provider response), for debugging
+  deliveryError  String?
+  /// When the email provider accepted the message
+  sentAt         DateTime?        @db.Timestamptz(3)
   createdAt      DateTime         @default(now()) @db.Timestamptz(3)
 
   @@index([ticketId, createdAt])

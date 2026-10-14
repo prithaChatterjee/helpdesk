@@ -14,6 +14,8 @@ export const JOB_QUEUES = {
   classifyTicket: 'classify-ticket',
   /** Answer and resolve a ticket from the knowledge base, when it can */
   resolveTicket: 'resolve-ticket',
+  /** Email an outbound message (an Agent's or the AI's reply) to the ticket's customer */
+  sendEmail: 'send-email',
 } as const;
 
 export type JobQueue = (typeof JOB_QUEUES)[keyof typeof JOB_QUEUES];
@@ -26,4 +28,10 @@ export interface ClassifyTicketJob {
 /** Data of a `resolve-ticket` job. */
 export interface ResolveTicketJob {
   ticketId: string;
+}
+
+/** Data of a `send-email` job. */
+export interface SendEmailJob {
+  /** Id of the OUTBOUND `Message` to email */
+  messageId: string;
 }

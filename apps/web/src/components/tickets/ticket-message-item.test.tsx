@@ -9,6 +9,7 @@ const customerMessage: TicketMessage = {
   fromEmail: 'jane@customer.test',
   fromName: 'Jane Doe',
   bodyText: 'I forgot my password.\nCan you help?',
+  deliveryStatus: null,
   createdAt: '2026-10-01T10:00:00.000Z',
 };
 
@@ -18,6 +19,7 @@ const reply: TicketMessage = {
   fromEmail: 'alan@helpdesk.test',
   fromName: 'Alan Agent',
   bodyText: 'Here is a reset link.',
+  deliveryStatus: null,
   createdAt: '2026-10-02T10:00:00.000Z',
 };
 
@@ -51,6 +53,29 @@ describe('TicketMessageItem', () => {
     expect(article).toHaveAccessibleName('Reply from Alan Agent');
     expect(article).toHaveTextContent('Alan Agent · Reply');
     expect(article).not.toHaveTextContent('alan@helpdesk.test');
+  });
+
+  it.each([
+    ['PENDING', 'Sending…'],
+    ['SENT', 'Emailed'],
+    ['FAILED', 'Not sent'],
+    [null, 'Not emailed'],
+  ] as const)('labels a reply with delivery status %s as "%s"', (deliveryStatus, label) => {
+    const article = renderMessage({ ...reply, deliveryStatus });
+
+    expect(article).toHaveTextContent(`Alan Agent · Reply · ${label}`);
+  });
+
+  it('highlights a reply that could not be sent', () => {
+    renderMessage({ ...reply, deliveryStatus: 'FAILED' });
+
+    expect(screen.getByText('Not sent', { exact: false })).toHaveClass('text-destructive');
+  });
+
+  it('shows no delivery status on a customer message', () => {
+    const article = renderMessage(customerMessage);
+
+    expect(article).not.toHaveTextContent(/Sending|Emailed|Not sent|Not emailed/);
   });
 
   it('shows when the message was sent', () => {

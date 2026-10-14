@@ -27,6 +27,7 @@ const savedReply = {
     fromEmail: 'agent@helpdesk.test',
     fromName: 'Alan Agent',
     bodyText: 'Here is a reset link.',
+    deliveryStatus: null,
     createdAt: '2026-10-03T10:00:00.000Z',
   },
 };

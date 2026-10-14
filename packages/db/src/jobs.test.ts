@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { JOB_PRIORITY, sendClassifyTicketJob, sendResolveTicketJob } from './jobs';
+import {
+  JOB_PRIORITY,
+  sendClassifyTicketJob,
+  sendResolveTicketJob,
+  sendSendEmailJob,
+} from './jobs';
 
 const ticketId = '0199a000-0000-7000-8000-0000000000a1';
 
@@ -22,5 +27,15 @@ describe.each([
 
     expect(send).toHaveBeenCalledWith(queue, { ticketId }, { priority: JOB_PRIORITY.backlog });
     expect(JOB_PRIORITY.newTicket).toBeGreaterThan(JOB_PRIORITY.backlog);
+  });
+});
+
+describe('sendSendEmailJob', () => {
+  it('queues the message for sending', async () => {
+    const send = vi.fn().mockResolvedValue('job-3');
+
+    await expect(sendSendEmailJob({ send }, 'm1')).resolves.toBe('job-3');
+
+    expect(send).toHaveBeenCalledWith('send-email', { messageId: 'm1' });
   });
 });

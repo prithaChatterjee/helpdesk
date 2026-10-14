@@ -1,4 +1,9 @@
-import { type ClassifyTicketJob, JOB_QUEUES, type ResolveTicketJob } from '@helpdesk/shared';
+import {
+  type ClassifyTicketJob,
+  JOB_QUEUES,
+  type ResolveTicketJob,
+  type SendEmailJob,
+} from '@helpdesk/shared';
 import { PgBoss, type QueueOptions } from 'pg-boss';
 
 export type { Job, JobWithMetadata } from 'pg-boss';
@@ -34,6 +39,11 @@ export function sendResolveTicketJob(
   });
 }
 
+/** Queues emailing an outbound message to the ticket's customer. */
+export function sendSendEmailJob(boss: Pick<JobQueueClient, 'send'>, messageId: string) {
+  return boss.send(JOB_QUEUES.sendEmail, { messageId } satisfies SendEmailJob);
+}
+
 // The AI provider may be down, busy or out of quota for a while: retry after ~30 s, 1 min, 2 min,
 // … up to an hour apart, then give up (the npm scripts above queue the ticket again)
 const AI_JOB_RETRIES: QueueOptions = {
@@ -41,6 +51,15 @@ const AI_JOB_RETRIES: QueueOptions = {
   retryDelay: 30,
   retryBackoff: true,
   retryDelayMax: 3600,
+};
+
+// A customer waits for the reply: retry sooner than AI jobs (~30 s, 1 min, 2 min, … ~16 min), then
+// mark the message as failed
+const SEND_EMAIL_RETRIES: QueueOptions = {
+  retryLimit: 6,
+  retryDelay: 30,
+  retryBackoff: true,
+  retryDelayMax: 1800,
 };
 
 /**
@@ -57,5 +76,6 @@ export async function startJobQueue(connectionString: string): Promise<JobQueueC
   await boss.start();
   await boss.createQueue(JOB_QUEUES.classifyTicket, AI_JOB_RETRIES);
   await boss.createQueue(JOB_QUEUES.resolveTicket, AI_JOB_RETRIES);
+  await boss.createQueue(JOB_QUEUES.sendEmail, SEND_EMAIL_RETRIES);
   return boss;
 }

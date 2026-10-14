@@ -20,11 +20,13 @@
     "@helpdesk/shared": "^0.0.0",
     "ai": "^7.0.140",
     "better-auth": "^1.7.7",
+    "busboy": "^1.6.0",
     "express": "^5.2.1",
     "sanitize-html": "^2.18.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@types/busboy": "^1.5.4",
     "@types/express": "^5.0.6",
     "@types/sanitize-html": "^2.16.2",
     "@types/supertest": "^7.2.1",

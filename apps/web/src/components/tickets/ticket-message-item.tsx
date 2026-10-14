@@ -1,4 +1,4 @@
-import { MessageDirection, type TicketMessage } from '@helpdesk/shared';
+import { type DeliveryStatus, MessageDirection, type TicketMessage } from '@helpdesk/shared';
 import { dateTimeFormat } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -23,6 +23,7 @@ export function TicketMessageItem({ message }: { message: TicketMessage }) {
               <span className="text-muted-foreground"> &lt;{message.fromEmail}&gt;</span>
             )}
             <span className="text-muted-foreground"> · {outbound ? 'Reply' : 'Customer'}</span>
+            {outbound && <DeliveryLabel status={message.deliveryStatus} />}
           </p>
           <time dateTime={message.createdAt} className="text-muted-foreground">
             {dateTimeFormat.format(new Date(message.createdAt))}
@@ -32,5 +33,25 @@ export function TicketMessageItem({ message }: { message: TicketMessage }) {
         <p className="text-sm break-words whitespace-pre-wrap">{message.bodyText}</p>
       </article>
     </li>
+  );
+}
+
+// `null`: saved while email sending was off, so the customer never got it
+const DELIVERY_LABELS: Record<DeliveryStatus | 'NONE', string> = {
+  PENDING: 'Sending…',
+  SENT: 'Emailed',
+  FAILED: 'Not sent',
+  NONE: 'Not emailed',
+};
+
+/** Whether a reply reached the customer's inbox (as far as the email provider says). */
+function DeliveryLabel({ status }: { status: DeliveryStatus | null }) {
+  return (
+    <span
+      className={cn(status === 'FAILED' ? 'text-destructive font-medium' : 'text-muted-foreground')}
+    >
+      {' · '}
+      {DELIVERY_LABELS[status ?? 'NONE']}
+    </span>
   );
 }

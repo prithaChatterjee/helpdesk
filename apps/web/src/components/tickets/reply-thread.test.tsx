@@ -22,6 +22,7 @@ const ticket: TicketDetail = {
       fromEmail: 'jane@customer.test',
       fromName: 'Jane Doe',
       bodyText: 'I forgot my password.',
+      deliveryStatus: null,
       createdAt: '2026-10-01T10:00:00.000Z',
     },
     {
@@ -30,6 +31,7 @@ const ticket: TicketDetail = {
       fromEmail: 'alan@helpdesk.test',
       fromName: 'Alan Agent',
       bodyText: 'Here is a reset link.',
+      deliveryStatus: null,
       createdAt: '2026-10-02T10:00:00.000Z',
     },
   ],

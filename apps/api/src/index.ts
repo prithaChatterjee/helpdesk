@@ -1,5 +1,10 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { sendClassifyTicketJob, sendResolveTicketJob, startJobQueue } from '@helpdesk/db';
+import {
+  sendClassifyTicketJob,
+  sendResolveTicketJob,
+  sendSendEmailJob,
+  startJobQueue,
+} from '@helpdesk/db';
 import { AI_MODEL } from '@helpdesk/shared';
 import { createApp } from './app';
 import { createAuth } from './auth';
@@ -44,6 +49,10 @@ const server = createApp(auth, prisma, {
       sendClassifyTicketJob(jobs, ticketId, 'newTicket'),
       sendResolveTicketJob(jobs, ticketId, 'newTicket'),
     ]),
+  // The worker emails replies with SendGrid; off, replies are only saved to the thread
+  enqueueSendEmail: env.EMAIL_SENDING_ENABLED
+    ? (messageId) => sendSendEmailJob(jobs, messageId)
+    : undefined,
 }).listen(env.API_PORT, () => {
   console.log(`API listening on http://localhost:${env.API_PORT}`);
 });

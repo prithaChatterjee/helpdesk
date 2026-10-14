@@ -1,4 +1,4 @@
-import type { TicketDetail, TicketDetailResponse } from '@helpdesk/shared';
+import { DeliveryStatus, type TicketDetail, type TicketDetailResponse } from '@helpdesk/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router';
 import { BackLink } from '@/components/common/back-link';
@@ -10,12 +10,19 @@ import { Card, CardContent } from '@/components/ui/card';
 import { LoadError } from '@/components/common/load-error';
 import { ApiError, apiGet } from '@/lib/api';
 
+const SENDING_REFETCH_MS = 5_000;
+
 export function TicketDetailPage() {
   const { id = '' } = useParams();
   const { data, isPending, error } = useQuery({
     // Under ['tickets'], so invalidating the list refreshes an open ticket too
     queryKey: ['tickets', id],
     queryFn: () => apiGet<TicketDetailResponse>(`/tickets/${encodeURIComponent(id)}`),
+    // While a reply is being emailed, check back until the worker marks it sent or failed
+    refetchInterval: (query) =>
+      query.state.data?.ticket.messages.some((m) => m.deliveryStatus === DeliveryStatus.PENDING)
+        ? SENDING_REFETCH_MS
+        : false,
   });
 
   return (

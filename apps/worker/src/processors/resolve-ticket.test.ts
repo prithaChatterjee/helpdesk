@@ -18,6 +18,7 @@ import {
 // Prisma connects lazily, so stubbed queries need no running Postgres
 const prisma = createPrismaClient('postgresql://unused:unused@localhost:1/unused');
 const ticketId = '0199a000-0000-7000-8000-0000000000a1';
+const replyId = '0199a000-0000-7000-8000-0000000000b1';
 const knowledgeBase = '# KB\n\nPro costs $25 per user per month.';
 const options = { knowledgeBase, supportEmail: 'support@helpdesk.test' };
 
@@ -63,7 +64,7 @@ function stubTicket(ticket: unknown) {
 /** Stubs the callback-form transaction; `count` is how many tickets the guarded update changed. */
 function stubResolve(count = 1) {
   const updateMany = vi.spyOn(prisma.ticket, 'updateMany').mockResolvedValue({ count } as never);
-  const create = vi.spyOn(prisma.message, 'create').mockResolvedValue({} as never);
+  const create = vi.spyOn(prisma.message, 'create').mockResolvedValue({ id: replyId } as never);
   vi.spyOn(prisma, '$transaction').mockImplementation(((fn: (tx: typeof prisma) => unknown) =>
     fn(prisma)) as never);
   return { updateMany, create };
@@ -158,7 +159,61 @@ describe('resolveTicket', () => {
           'The Support Team',
         ].join('\n'),
       },
+      select: { id: true },
     });
+  });
+
+  it('queues the AI reply for emailing when sending is on', async () => {
+    stubTicket(openTicket);
+    const { create } = stubResolve();
+    resolve.mockResolvedValue(resolvable);
+    const enqueueSendEmail = vi.fn().mockResolvedValue('job-1');
+
+    await expect(
+      resolveTicket(prisma, resolve, ticketId, { ...options, enqueueSendEmail }),
+    ).resolves.toEqual({ result: 'resolved' });
+
+    expect(create.mock.calls[0]?.[0].data).toMatchObject({ deliveryStatus: 'PENDING' });
+    expect(enqueueSendEmail).toHaveBeenCalledWith(replyId);
+  });
+
+  it('saves the AI reply without a delivery status when sending is off', async () => {
+    stubTicket(openTicket);
+    const { create } = stubResolve();
+    resolve.mockResolvedValue(resolvable);
+
+    await resolveTicket(prisma, resolve, ticketId, options);
+
+    expect(create.mock.calls[0]?.[0].data).not.toHaveProperty('deliveryStatus');
+  });
+
+  it('marks the AI reply as not sent when it cannot be queued, and still resolves', async () => {
+    stubTicket(openTicket);
+    stubResolve();
+    resolve.mockResolvedValue(resolvable);
+    const update = vi.spyOn(prisma.message, 'update').mockResolvedValue({} as never);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const enqueueSendEmail = vi.fn().mockRejectedValue(new Error('queue down'));
+
+    await expect(
+      resolveTicket(prisma, resolve, ticketId, { ...options, enqueueSendEmail }),
+    ).resolves.toEqual({ result: 'resolved' });
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: replyId },
+      data: { deliveryStatus: 'FAILED', deliveryError: "Couldn't queue the email" },
+    });
+  });
+
+  it('does not queue an email when an Agent answered meanwhile', async () => {
+    stubTicket(openTicket);
+    stubResolve(0);
+    resolve.mockResolvedValue(resolvable);
+    const enqueueSendEmail = vi.fn();
+
+    await resolveTicket(prisma, resolve, ticketId, { ...options, enqueueSendEmail });
+
+    expect(enqueueSendEmail).not.toHaveBeenCalled();
   });
 
   it('keeps the ticket open when the knowledge base does not answer it', async () => {

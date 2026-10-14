@@ -6,8 +6,12 @@ import { requireAuth } from './middleware/require-auth';
 import { requireRole } from './middleware/require-role';
 import { assigneesRouter } from './routes/assignees';
 import { dashboardRouter } from './routes/dashboard';
-import { type EnqueueNewTicketJobs, inboundEmailRouter } from './routes/inbound-email';
-import { type TicketsAi, ticketsRouter } from './routes/tickets';
+import {
+  type EnqueueNewTicketJobs,
+  inboundEmailRouter,
+  sendGridInboundRouter,
+} from './routes/inbound-email';
+import { type EnqueueSendEmail, type TicketsAi, ticketsRouter } from './routes/tickets';
 import { usersRouter } from './routes/users';
 
 export interface AppConfig {
@@ -20,6 +24,11 @@ export interface AppConfig {
   ai?: TicketsAi;
   /** Queues AI classification and auto-resolution of each ticket the inbound email webhook creates */
   enqueueNewTicketJobs?: EnqueueNewTicketJobs;
+  /**
+   * Queues emailing each Agent reply to the customer (`EMAIL_SENDING_ENABLED`); without it, replies
+   * are only saved to the thread
+   */
+  enqueueSendEmail?: EnqueueSendEmail;
 }
 
 export function createApp(auth: Auth, prisma: PrismaClient, config: AppConfig) {
@@ -33,6 +42,11 @@ export function createApp(auth: Auth, prisma: PrismaClient, config: AppConfig) {
     '/api/webhooks/inbound-email',
     inboundEmailRouter(prisma, config.inboundEmailSecret, config.enqueueNewTicketJobs),
   );
+  // SendGrid Inbound Parse posts multipart/form-data, read after checking the secret
+  app.use(
+    '/api/webhooks/sendgrid/inbound',
+    sendGridInboundRouter(prisma, config.inboundEmailSecret, config.enqueueNewTicketJobs),
+  );
   app.use(express.json({ limit: '1mb' }));
 
   app.get('/api/health', (_req, res) => {
@@ -44,7 +58,11 @@ export function createApp(auth: Auth, prisma: PrismaClient, config: AppConfig) {
   });
 
   app.use('/api/users', requireAuth(auth), requireRole('ADMIN'), usersRouter(auth, prisma));
-  app.use('/api/tickets', requireAuth(auth), ticketsRouter(prisma, config.ai));
+  app.use(
+    '/api/tickets',
+    requireAuth(auth),
+    ticketsRouter(prisma, config.ai, { enqueueSendEmail: config.enqueueSendEmail }),
+  );
   app.use('/api/assignees', requireAuth(auth), assigneesRouter(prisma));
   app.use('/api/dashboard', requireAuth(auth), dashboardRouter(prisma));
 

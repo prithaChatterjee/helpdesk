@@ -1329,6 +1329,7 @@ describe('POST /api/tickets/:id/replies', () => {
     fromEmail: 'test@example.com',
     fromName: 'Test User',
     bodyText: 'Here is a reset link.',
+    deliveryStatus: null,
     createdAt: new Date('2026-10-03T10:00:00.000Z'),
   };
 
@@ -1361,6 +1362,7 @@ describe('POST /api/tickets/:id/replies', () => {
         fromEmail: 'test@example.com',
         fromName: 'Test User',
         bodyText: 'Here is a reset link.',
+        deliveryStatus: null,
         createdAt: '2026-10-03T10:00:00.000Z',
       },
     });
@@ -1381,6 +1383,8 @@ describe('POST /api/tickets/:id/replies', () => {
       fromName: 'Test User',
       bodyText: 'Here is a reset link.',
       sentByUserId: '0199a000-0000-7000-8000-000000000001',
+      // Email sending is off in this app
+      deliveryStatus: null,
     });
   });
 
@@ -1448,6 +1452,221 @@ describe('POST /api/tickets/:id/replies', () => {
 
     expect(res.status).toBe(404);
     expect(transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/tickets/:id/replies with email sending on', () => {
+  const ticketId = '0199a000-0000-7000-8000-0000000000a1';
+  const messageId = '0199a000-0000-7000-8000-0000000000b3';
+  const enqueueSendEmail = vi.fn<(messageId: string) => Promise<unknown>>();
+  const sendingApp = createApp(auth, prisma, {
+    inboundEmailSecret: INBOUND_EMAIL_SECRET,
+    enqueueSendEmail,
+  });
+  const savedMessage = {
+    id: messageId,
+    direction: 'OUTBOUND',
+    fromEmail: 'test@example.com',
+    fromName: 'Test User',
+    bodyText: 'Here is a reset link.',
+    deliveryStatus: 'PENDING',
+    createdAt: new Date('2026-10-03T10:00:00.000Z'),
+  };
+
+  function stubReply() {
+    vi.spyOn(prisma.ticket, 'update').mockReturnValue('update' as never);
+    const create = vi.spyOn(prisma.message, 'create').mockReturnValue('create' as never);
+    vi.spyOn(prisma, '$transaction').mockResolvedValue([{ id: ticketId }, savedMessage] as never);
+    return { create };
+  }
+
+  function postReply() {
+    return request(sendingApp).post(`/api/tickets/${ticketId}/replies`).send({ body: 'Hi' });
+  }
+
+  afterEach(() => {
+    enqueueSendEmail.mockReset();
+  });
+
+  it('saves the reply as pending and queues it for emailing', async () => {
+    signInAs('AGENT');
+    const { create } = stubReply();
+    enqueueSendEmail.mockResolvedValue('job-1');
+
+    const res = await postReply();
+
+    expect(res.status).toBe(201);
+    expect(res.body.message.deliveryStatus).toBe('PENDING');
+    expect(create.mock.calls[0]?.[0]?.data).toMatchObject({ deliveryStatus: 'PENDING' });
+    expect(enqueueSendEmail).toHaveBeenCalledExactlyOnceWith(messageId);
+  });
+
+  it('marks the reply as not sent when it cannot be queued, and still saves it', async () => {
+    signInAs('AGENT');
+    stubReply();
+    enqueueSendEmail.mockRejectedValue(new Error('database unavailable'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const update = vi
+      .spyOn(prisma.message, 'update')
+      .mockResolvedValue({ ...savedMessage, deliveryStatus: 'FAILED' } as never);
+
+    const res = await postReply();
+
+    expect(res.status).toBe(201);
+    expect(res.body.message.deliveryStatus).toBe('FAILED');
+    expect(update.mock.calls[0]?.[0]).toMatchObject({
+      where: { id: messageId },
+      data: { deliveryStatus: 'FAILED', deliveryError: "Couldn't queue the email" },
+    });
+  });
+
+  it('does not queue anything for a ticket that does not exist', async () => {
+    signInAs('AGENT');
+    stubReply();
+    vi.spyOn(prisma, '$transaction').mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('Record not found', {
+        code: 'P2025',
+        clientVersion: 'test',
+      }),
+    );
+
+    const res = await postReply();
+
+    expect(res.status).toBe(404);
+    expect(enqueueSendEmail).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/webhooks/sendgrid/inbound', () => {
+  const ticketId = '0199a000-0000-7000-8000-0000000000a1';
+  const headers = [
+    'Message-ID: <m1@customer.test>',
+    'From: Jane Doe <jane@customer.test>',
+    "Subject: Can't log in",
+  ].join('\r\n');
+
+  /** A SendGrid Inbound Parse post (multipart/form-data) with the token in the URL. */
+  function postParse(token: string | null = INBOUND_EMAIL_SECRET, to = app) {
+    const query = token ? `?token=${encodeURIComponent(token)}` : '';
+    return request(to)
+      .post(`/api/webhooks/sendgrid/inbound${query}`)
+      .field('headers', headers)
+      .field('from', 'Jane Doe <jane@customer.test>')
+      .field('to', 'help@parse.acme.test')
+      .field('subject', "Can't log in")
+      .field('text', 'Jürgen here, I am locked out')
+      .field('envelope', '{"to":["help@parse.acme.test"],"from":"jane@customer.test"}');
+  }
+
+  function stubNewTicket() {
+    vi.spyOn(prisma.message, 'findUnique').mockResolvedValue(null);
+    return vi.spyOn(prisma.ticket, 'create').mockResolvedValue({ id: ticketId } as never);
+  }
+
+  it('returns 401 without the token', async () => {
+    const create = stubNewTicket();
+    const res = await postParse(null);
+    expect(res.status).toBe(401);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 with a wrong token', async () => {
+    const res = await postParse('wrong-token');
+    expect(res.status).toBe(401);
+  });
+
+  it('does not accept the secret as a Bearer header instead', async () => {
+    const res = await request(app)
+      .post('/api/webhooks/sendgrid/inbound')
+      .set('Authorization', `Bearer ${INBOUND_EMAIL_SECRET}`)
+      .field('from', 'jane@customer.test');
+    expect(res.status).toBe(401);
+  });
+
+  it('creates a ticket from the parsed email', async () => {
+    const create = stubNewTicket();
+
+    const res = await postParse().field('charsets', '{"text":"UTF-8","from":"UTF-8"}');
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ result: 'created', ticketId });
+    const data = create.mock.calls[0]?.[0].data;
+    expect(data).toMatchObject({
+      subject: "Can't log in",
+      customerEmail: 'jane@customer.test',
+      customerName: 'Jane Doe',
+    });
+    expect(data?.messages).toEqual({
+      create: expect.objectContaining({
+        emailMessageId: 'm1@customer.test',
+        bodyText: 'Jürgen here, I am locked out',
+      }),
+    });
+  });
+
+  it('decodes a field in the charset SendGrid lists for it', async () => {
+    const create = stubNewTicket();
+
+    // UTF-8 bytes declared as Latin-1 decode byte by byte
+    await postParse().field('charsets', '{"text":"iso-8859-1"}');
+
+    expect(create.mock.calls[0]?.[0].data.messages).toEqual({
+      create: expect.objectContaining({ bodyText: 'JÃ¼rgen here, I am locked out' }),
+    });
+  });
+
+  it('ignores attachments', async () => {
+    const create = stubNewTicket();
+
+    const res = await postParse()
+      .field('attachments', '1')
+      .attach('attachment1', Buffer.from('%PDF-1.4 fake'), 'invoice.pdf');
+
+    expect(res.status).toBe(201);
+    expect(create).toHaveBeenCalledOnce();
+  });
+
+  it('returns 200 for a duplicate delivery (SendGrid retries)', async () => {
+    vi.spyOn(prisma.message, 'findUnique').mockResolvedValue({ ticketId } as never);
+
+    const res = await postParse();
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ result: 'duplicate', ticketId });
+  });
+
+  it('returns 400 for a sender that is not an email address', async () => {
+    const res = await request(app)
+      .post(`/api/webhooks/sendgrid/inbound?token=${INBOUND_EMAIL_SECRET}`)
+      .field('headers', 'Message-ID: <m2@customer.test>')
+      .field('from', 'not an address');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Invalid sender email address' });
+  });
+
+  it('returns 400 for a body that is not multipart/form-data', async () => {
+    const res = await request(app)
+      .post(`/api/webhooks/sendgrid/inbound?token=${INBOUND_EMAIL_SECRET}`)
+      .send({ from: 'jane@customer.test' });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Expected a multipart/form-data body' });
+  });
+
+  it('queues the AI jobs for a new ticket', async () => {
+    const enqueue = vi.fn().mockResolvedValue('job-1');
+    const queueApp = createApp(auth, prisma, {
+      inboundEmailSecret: INBOUND_EMAIL_SECRET,
+      enqueueNewTicketJobs: enqueue,
+    });
+    stubNewTicket();
+    vi.spyOn(prisma.user, 'findFirst').mockResolvedValue(null);
+
+    const res = await postParse(INBOUND_EMAIL_SECRET, queueApp);
+
+    expect(res.status).toBe(201);
+    expect(enqueue).toHaveBeenCalledExactlyOnceWith(ticketId);
   });
 });
 

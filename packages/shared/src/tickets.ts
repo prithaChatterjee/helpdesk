@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  deliveryStatusSchema,
   messageDirectionSchema,
   type TicketCategory,
   ticketCategorySchema,
@@ -54,6 +55,8 @@ export const ticketMessageSchema = z.object({
   fromEmail: z.string(),
   fromName: z.string().nullable(),
   bodyText: z.string(),
+  /** Outbound messages only: whether the reply was emailed to the customer */
+  deliveryStatus: deliveryStatusSchema.nullable(),
   createdAt: z.iso.datetime(),
 });
 export type TicketMessage = z.infer<typeof ticketMessageSchema>;

@@ -4,6 +4,7 @@ import {
   AI_TIMEOUT_MS,
   type CreateReplyResponse,
   createReplySchema,
+  DeliveryStatus,
   MessageDirection,
   type PolishReplyResponse,
   polishReplySchema,
@@ -204,9 +205,24 @@ export interface TicketsAi {
  * Tickets for Admins and Agents. Mount behind `requireAuth`. Without `replyPolisher` or
  * `ticketSummarizer`, polishing a reply or summarizing a ticket returns 503.
  */
+/** Queues emailing an outbound message to the customer, e.g. a pg-boss `send-email` job. */
+export type EnqueueSendEmail = (messageId: string) => Promise<unknown>;
+
+// A message as the thread shows it: the plain-text body only, never stored HTML
+const threadMessageSelect = {
+  id: true,
+  direction: true,
+  fromEmail: true,
+  fromName: true,
+  bodyText: true,
+  deliveryStatus: true,
+  createdAt: true,
+} as const;
+
 export function ticketsRouter(
   prisma: PrismaClient,
   { replyPolisher, ticketSummarizer }: TicketsAi = {},
+  { enqueueSendEmail }: { enqueueSendEmail?: EnqueueSendEmail } = {},
 ) {
   const router = Router();
 
@@ -264,15 +280,7 @@ export function ticketsRouter(
         ...ticketListSelect,
         summary: true,
         messages: {
-          // Only the plain-text body: the client renders text, never stored HTML
-          select: {
-            id: true,
-            direction: true,
-            fromEmail: true,
-            fromName: true,
-            bodyText: true,
-            createdAt: true,
-          },
+          select: threadMessageSelect,
           // id (uuid v7, time-ordered) breaks ties between messages stored in the same millisecond
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         },
@@ -345,7 +353,8 @@ export function ticketsRouter(
     res.json(body);
   });
 
-  // An Agent's reply, added to the thread. Not emailed yet: sending comes with the email provider.
+  // An Agent's reply, added to the thread. With `enqueueSendEmail` (email sending on), it is also
+  // queued for the worker to email to the customer; otherwise it is only saved.
   router.post('/:id/replies', async (req, res) => {
     const id = req.params.id;
     if (!z.uuid().safeParse(id).success) {
@@ -376,15 +385,9 @@ export function ticketsRouter(
             fromName: user.name,
             bodyText: parsed.data.body,
             sentByUserId: user.id,
+            deliveryStatus: enqueueSendEmail ? DeliveryStatus.PENDING : null,
           },
-          select: {
-            id: true,
-            direction: true,
-            fromEmail: true,
-            fromName: true,
-            bodyText: true,
-            createdAt: true,
-          },
+          select: threadMessageSelect,
         }),
       ]);
     } catch (err) {
@@ -393,6 +396,22 @@ export function ticketsRouter(
         return;
       }
       throw err;
+    }
+    if (enqueueSendEmail) {
+      // The reply is saved either way; if it can't be queued, the Agent sees it wasn't sent
+      try {
+        await enqueueSendEmail(message.id);
+      } catch (err) {
+        console.error(`Couldn't queue sending message ${message.id}:`, err);
+        message = await prisma.message.update({
+          where: { id: message.id },
+          data: {
+            deliveryStatus: DeliveryStatus.FAILED,
+            deliveryError: "Couldn't queue the email",
+          },
+          select: threadMessageSelect,
+        });
+      }
     }
     const body: CreateReplyResponse = {
       message: { ...message, createdAt: message.createdAt.toISOString() },
