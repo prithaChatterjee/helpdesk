@@ -2,19 +2,24 @@ import {
   type CreateReplyInput,
   type CreateReplyResponse,
   createReplySchema,
+  type PolishReplyResponse,
   type TicketListItem,
 } from '@helpdesk/shared';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Sparkles } from 'lucide-react';
 import { useId } from 'react';
-import { Controller, useForm } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Textarea } from '@/components/ui/textarea';
 import { apiPost } from '@/lib/api';
 
-/** Reply box under a ticket's conversation. Saves the reply to the thread (not emailed yet). */
+/**
+ * Reply box under a ticket's conversation. "Polish" rewrites the draft with AI for the Agent to
+ * review; "Save reply" saves it to the thread (not emailed yet).
+ */
 interface TicketReplyFormProps {
   /** The ticket being replied to */
   ticket: TicketListItem;
@@ -43,6 +48,27 @@ export function TicketReplyForm({ ticket }: TicketReplyFormProps) {
     },
   });
 
+  const polishReply = useMutation({
+    mutationFn: (values: CreateReplyInput) =>
+      apiPost<PolishReplyResponse>(`/tickets/${ticket.id}/replies/polish`, values),
+    onSuccess: ({ body }, { body: draft }) => {
+      form.setValue('body', body, { shouldDirty: true, shouldValidate: true });
+      toast.success('Reply polished', {
+        description: 'Review it before saving.',
+        action: {
+          label: 'Undo',
+          onClick: () => form.setValue('body', draft, { shouldDirty: true, shouldValidate: true }),
+        },
+      });
+    },
+    onError: (err) => {
+      form.setError('root', { message: err.message || "Couldn't polish the reply" });
+    },
+  });
+
+  // Nothing to save or polish until the Agent has written something besides whitespace
+  const isEmpty = !useWatch({ control: form.control, name: 'body' }).trim();
+  const busy = saveReply.isPending || polishReply.isPending;
   const rootError = form.formState.errors.root?.message;
 
   return (
@@ -59,6 +85,8 @@ export function TicketReplyForm({ ticket }: TicketReplyFormProps) {
                 id={bodyId}
                 rows={5}
                 placeholder="Write your reply…"
+                // The polished draft replaces the text, so edits made meanwhile would be lost
+                readOnly={polishReply.isPending}
                 aria-invalid={fieldState.invalid}
                 aria-describedby={fieldState.invalid ? undefined : hintId}
               />
@@ -77,8 +105,17 @@ export function TicketReplyForm({ ticket }: TicketReplyFormProps) {
             {rootError}
           </p>
         )}
-        <div className="flex justify-end">
-          <Button type="submit" disabled={saveReply.isPending}>
+        <div className="flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy || isEmpty}
+            onClick={form.handleSubmit((values) => polishReply.mutate(values))}
+          >
+            <Sparkles />
+            {polishReply.isPending ? 'Polishing…' : 'Polish'}
+          </Button>
+          <Button type="submit" disabled={busy || isEmpty}>
             {saveReply.isPending ? 'Saving…' : 'Save reply'}
           </Button>
         </div>

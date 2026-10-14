@@ -2,6 +2,7 @@ import { createPrismaClient, Prisma } from '@helpdesk/db';
 import type { UserRole } from '@helpdesk/shared';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ReplyPolisher } from './routes/tickets';
 import { createApp } from './app';
 import { type AuthSession, createAuth } from './auth';
 
@@ -1447,5 +1448,162 @@ describe('POST /api/tickets/:id/replies', () => {
 
     expect(res.status).toBe(404);
     expect(transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/tickets/:id/replies/polish', () => {
+  const ticketId = '0199a000-0000-7000-8000-0000000000a1';
+  const replyPolisher = vi.fn<ReplyPolisher>();
+  const polishApp = createApp(auth, prisma, {
+    inboundEmailSecret: INBOUND_EMAIL_SECRET,
+    replyPolisher,
+  });
+
+  function stubTicket(
+    ticket: unknown = {
+      subject: "Can't log in",
+      customerName: 'Jane Doe',
+      messages: [{ bodyText: 'I forgot my password' }],
+    },
+  ) {
+    return vi.spyOn(prisma.ticket, 'findUnique').mockResolvedValue(ticket as never);
+  }
+
+  afterEach(() => {
+    replyPolisher.mockReset();
+  });
+
+  it('returns 401 without a session cookie', async () => {
+    const res = await request(polishApp)
+      .post(`/api/tickets/${ticketId}/replies/polish`)
+      .send({ body: 'hi' });
+    expect(res.status).toBe(401);
+  });
+
+  it.each(['ADMIN', 'AGENT'] as const)('returns the polished draft for an %s', async (role) => {
+    signInAs(role);
+    stubTicket();
+    replyPolisher.mockResolvedValue('Hi Jane, here is a reset link.');
+
+    const res = await request(polishApp)
+      .post(`/api/tickets/${ticketId}/replies/polish`)
+      .send({ body: 'hi here is reset link' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ body: 'Hi Jane, here is a reset link.' });
+  });
+
+  it("sends the trimmed draft with the ticket's subject, customer and latest email", async () => {
+    signInAs('AGENT');
+    const findUnique = stubTicket();
+    replyPolisher.mockResolvedValue('Polished');
+
+    await request(polishApp)
+      .post(`/api/tickets/${ticketId}/replies/polish`)
+      .send({ body: '  hi here is reset link \n' });
+
+    expect(replyPolisher).toHaveBeenCalledWith({
+      draft: 'hi here is reset link',
+      subject: "Can't log in",
+      customerName: 'Jane Doe',
+      customerMessage: 'I forgot my password',
+    });
+    expect(findUnique.mock.calls[0]?.[0]?.select?.messages).toMatchObject({
+      where: { direction: 'INBOUND' },
+      take: 1,
+    });
+  });
+
+  it('sends no customer message for a ticket without inbound emails', async () => {
+    signInAs('AGENT');
+    stubTicket({ subject: 'Hi', customerName: null, messages: [] });
+    replyPolisher.mockResolvedValue('Polished');
+
+    await request(polishApp).post(`/api/tickets/${ticketId}/replies/polish`).send({ body: 'hi' });
+
+    expect(replyPolisher).toHaveBeenCalledWith(
+      expect.objectContaining({ customerName: null, customerMessage: null }),
+    );
+  });
+
+  it('saves nothing', async () => {
+    signInAs('AGENT');
+    stubTicket();
+    replyPolisher.mockResolvedValue('Polished');
+    const create = vi.spyOn(prisma.message, 'create');
+    const transaction = vi.spyOn(prisma, '$transaction');
+
+    await request(polishApp).post(`/api/tickets/${ticketId}/replies/polish`).send({ body: 'hi' });
+
+    expect(create).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ body: '   ' }, 'Write a reply'],
+    [{ body: 'a'.repeat(20_001) }, 'Keep the reply under 20,000 characters'],
+    [{}, undefined],
+  ])('returns 400 for %o', async (body, error) => {
+    signInAs('AGENT');
+    const findUnique = stubTicket();
+
+    const res = await request(polishApp).post(`/api/tickets/${ticketId}/replies/polish`).send(body);
+
+    expect(res.status).toBe(400);
+    if (error) expect(res.body).toEqual({ error });
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(replyPolisher).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for a ticket that does not exist', async () => {
+    signInAs('AGENT');
+    stubTicket(null);
+
+    const res = await request(polishApp)
+      .post(`/api/tickets/${ticketId}/replies/polish`)
+      .send({ body: 'hi' });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Ticket not found' });
+    expect(replyPolisher).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 without querying for an id that is not a uuid', async () => {
+    signInAs('AGENT');
+    const findUnique = stubTicket();
+
+    const res = await request(polishApp)
+      .post('/api/tickets/not-a-uuid/replies/polish')
+      .send({ body: 'hi' });
+
+    expect(res.status).toBe(404);
+    expect(findUnique).not.toHaveBeenCalled();
+  });
+
+  it('returns 502 when the model fails', async () => {
+    signInAs('AGENT');
+    stubTicket();
+    replyPolisher.mockRejectedValue(new Error('OpenAI is down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await request(polishApp)
+      .post(`/api/tickets/${ticketId}/replies/polish`)
+      .send({ body: 'hi' });
+
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: "Couldn't polish the reply. Try again." });
+  });
+
+  it('returns 503 when no polisher is configured', async () => {
+    signInAs('AGENT');
+    const findUnique = stubTicket();
+
+    const res = await request(app)
+      .post(`/api/tickets/${ticketId}/replies/polish`)
+      .send({ body: 'hi' });
+
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: "Polishing replies isn't set up" });
+    expect(findUnique).not.toHaveBeenCalled();
   });
 });

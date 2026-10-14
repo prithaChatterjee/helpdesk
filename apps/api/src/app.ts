@@ -6,12 +6,14 @@ import { requireAuth } from './middleware/require-auth';
 import { requireRole } from './middleware/require-role';
 import { assigneesRouter } from './routes/assignees';
 import { inboundEmailRouter } from './routes/inbound-email';
-import { ticketsRouter } from './routes/tickets';
+import { type ReplyPolisher, ticketsRouter } from './routes/tickets';
 import { usersRouter } from './routes/users';
 
 export interface AppConfig {
   /** Bearer token the inbound email webhook requires */
   inboundEmailSecret: string;
+  /** Rewrites reply drafts with AI; without one (no `OPENAI_API_KEY`), polishing returns 503 */
+  replyPolisher?: ReplyPolisher;
 }
 
 export function createApp(auth: Auth, prisma: PrismaClient, config: AppConfig) {
@@ -33,7 +35,7 @@ export function createApp(auth: Auth, prisma: PrismaClient, config: AppConfig) {
   });
 
   app.use('/api/users', requireAuth(auth), requireRole('ADMIN'), usersRouter(auth, prisma));
-  app.use('/api/tickets', requireAuth(auth), ticketsRouter(prisma));
+  app.use('/api/tickets', requireAuth(auth), ticketsRouter(prisma, config.replyPolisher));
   app.use('/api/assignees', requireAuth(auth), assigneesRouter(prisma));
 
   // Replaces Express's default handler, which sends stack traces unless NODE_ENV is production.

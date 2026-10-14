@@ -2,7 +2,7 @@ import type { TicketListItem } from '@helpdesk/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Toaster } from 'sonner';
+import { Toaster, toast } from 'sonner';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TicketReplyForm } from './ticket-reply-form';
 
@@ -49,6 +49,8 @@ function mockFetch(response: Response | Promise<Response>) {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  // Sonner keeps toasts in a global store, so they would show up in the next test's Toaster
+  toast.dismiss();
 });
 
 describe('TicketReplyForm', () => {
@@ -94,17 +96,27 @@ describe('TicketReplyForm', () => {
     });
   });
 
-  it('asks for a reply instead of saving an empty one', async () => {
+  it('disables both buttons until the reply has text', async () => {
     const user = userEvent.setup();
-    const fetchSpy = mockFetch(Response.json(savedReply, { status: 201 }));
     renderForm();
+    const reply = screen.getByRole('textbox', { name: 'Reply' });
+    const save = screen.getByRole('button', { name: 'Save reply' });
+    const polish = screen.getByRole('button', { name: 'Polish' });
 
-    await user.type(screen.getByRole('textbox', { name: 'Reply' }), '   ');
-    await user.click(screen.getByRole('button', { name: 'Save reply' }));
+    expect(save).toBeDisabled();
+    expect(polish).toBeDisabled();
 
-    expect(await screen.findByText('Write a reply')).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'Reply' })).toHaveAttribute('aria-invalid', 'true');
-    expect(fetchSpy).not.toHaveBeenCalled();
+    await user.type(reply, '   ');
+    expect(save).toBeDisabled();
+    expect(polish).toBeDisabled();
+
+    await user.type(reply, 'Hi');
+    expect(save).toBeEnabled();
+    expect(polish).toBeEnabled();
+
+    await user.clear(reply);
+    expect(save).toBeDisabled();
+    expect(polish).toBeDisabled();
   });
 
   it('disables the button while saving', async () => {
@@ -130,5 +142,101 @@ describe('TicketReplyForm', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Ticket not found');
     expect(screen.getByRole('textbox', { name: 'Reply' })).toHaveValue('Hi');
     expect(screen.getByRole('button', { name: 'Save reply' })).toBeEnabled();
+  });
+  describe('Polish', () => {
+    it('replaces the draft with the polished reply and asks for a review', async () => {
+      const user = userEvent.setup();
+      const fetchSpy = mockFetch(Response.json({ body: 'Hi Jane,\n\nHere is a reset link.' }));
+      renderForm();
+
+      await user.type(screen.getByRole('textbox', { name: 'Reply' }), ' hi here is reset link ');
+      await user.click(screen.getByRole('button', { name: 'Polish' }));
+
+      expect(await screen.findByText('Reply polished')).toBeInTheDocument();
+      expect(screen.getByText('Review it before saving.')).toBeInTheDocument();
+      expect(screen.getByRole('textbox', { name: 'Reply' })).toHaveValue(
+        'Hi Jane,\n\nHere is a reset link.',
+      );
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `/api/tickets/${ticketId}/replies/polish`,
+        expect.objectContaining({ method: 'POST' }),
+      );
+      expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body))).toEqual({
+        body: 'hi here is reset link',
+      });
+    });
+
+    it('does not save the reply', async () => {
+      const user = userEvent.setup();
+      const fetchSpy = mockFetch(Response.json({ body: 'Polished' }));
+      const { invalidate } = renderForm();
+
+      await user.type(screen.getByRole('textbox', { name: 'Reply' }), 'hi');
+      await user.click(screen.getByRole('button', { name: 'Polish' }));
+
+      await screen.findByText('Reply polished');
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(invalidate).not.toHaveBeenCalled();
+    });
+
+    it('restores the original draft on Undo', async () => {
+      const user = userEvent.setup();
+      mockFetch(Response.json({ body: 'Polished' }));
+      renderForm();
+
+      await user.type(screen.getByRole('textbox', { name: 'Reply' }), 'my draft');
+      await user.click(screen.getByRole('button', { name: 'Polish' }));
+      await user.click(await screen.findByRole('button', { name: 'Undo' }));
+
+      expect(screen.getByRole('textbox', { name: 'Reply' })).toHaveValue('my draft');
+    });
+
+    it('saves the polished reply', async () => {
+      const user = userEvent.setup();
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(Response.json({ body: 'Polished reply.' }))
+        .mockResolvedValueOnce(Response.json(savedReply, { status: 201 }));
+      renderForm();
+
+      await user.type(screen.getByRole('textbox', { name: 'Reply' }), 'draft');
+      await user.click(screen.getByRole('button', { name: 'Polish' }));
+      await screen.findByText('Reply polished');
+      await user.click(screen.getByRole('button', { name: 'Save reply' }));
+
+      expect(await screen.findByText('Reply saved')).toBeInTheDocument();
+      expect(fetchSpy.mock.calls[1]?.[0]).toBe(`/api/tickets/${ticketId}/replies`);
+      expect(JSON.parse(String(fetchSpy.mock.calls[1]?.[1]?.body))).toEqual({
+        body: 'Polished reply.',
+      });
+    });
+
+    it('locks the reply and both buttons while polishing', async () => {
+      const user = userEvent.setup();
+      mockFetch(new Promise<Response>(() => {}));
+      renderForm();
+
+      await user.type(screen.getByRole('textbox', { name: 'Reply' }), 'hi');
+      await user.click(screen.getByRole('button', { name: 'Polish' }));
+
+      expect(await screen.findByRole('button', { name: 'Polishing…' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Save reply' })).toBeDisabled();
+      expect(screen.getByRole('textbox', { name: 'Reply' })).toHaveAttribute('readonly');
+    });
+
+    it('shows the API error and keeps the draft when polishing fails', async () => {
+      const user = userEvent.setup();
+      mockFetch(Response.json({ error: "Couldn't polish the reply. Try again." }, { status: 502 }));
+      renderForm();
+
+      await user.type(screen.getByRole('textbox', { name: 'Reply' }), 'hi');
+      await user.click(screen.getByRole('button', { name: 'Polish' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        "Couldn't polish the reply. Try again.",
+      );
+      expect(screen.getByRole('textbox', { name: 'Reply' })).toHaveValue('hi');
+      expect(screen.getByRole('button', { name: 'Polish' })).toBeEnabled();
+    });
   });
 });

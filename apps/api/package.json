@@ -12,8 +12,10 @@
     "seed": "node dist/seed.mjs"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.93",
     "@helpdesk/db": "^0.0.0",
     "@helpdesk/shared": "^0.0.0",
+    "ai": "^7.0.140",
     "better-auth": "^1.7.7",
     "express": "^5.2.1",
     "sanitize-html": "^2.18.0",

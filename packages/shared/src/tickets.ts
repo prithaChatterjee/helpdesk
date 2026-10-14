@@ -111,6 +111,14 @@ export type CreateReplyInput = z.infer<typeof createReplySchema>;
 export const createReplyResponseSchema = z.object({ message: ticketMessageSchema });
 export type CreateReplyResponse = z.infer<typeof createReplyResponseSchema>;
 
+/** `POST /api/tickets/:id/replies/polish` body: the Agent's draft, same rules as a reply. */
+export const polishReplySchema = createReplySchema;
+export type PolishReplyInput = CreateReplyInput;
+
+/** The draft rewritten by AI, for the Agent to review before saving. */
+export const polishReplyResponseSchema = z.object({ body: z.string() });
+export type PolishReplyResponse = z.infer<typeof polishReplyResponseSchema>;
+
 export const INBOUND_EMAIL_RESULTS = ['created', 'appended', 'duplicate', 'ignored'] as const;
 
 /** What `POST /api/webhooks/inbound-email` did with the email. */

@@ -20,6 +20,8 @@ const envSchema = z
     BETTER_AUTH_URL: z.url(),
     // Bearer token for POST /api/webhooks/inbound-email
     INBOUND_EMAIL_SECRET: z.string().min(32),
+    // OpenAI key for polishing reply drafts; without it the Polish button returns an error
+    OPENAI_API_KEY: z.string().min(1).optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;
