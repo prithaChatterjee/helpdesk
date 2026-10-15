@@ -15,6 +15,7 @@ const DashboardPage = lazy(() =>
   import('@/pages/dashboard-page').then((module) => ({ default: module.DashboardPage })),
 );
 
+
 export default function App() {
   return (
     <Routes>

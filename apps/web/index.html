@@ -5,6 +5,19 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Helpdesk</title>
+    <script>
+      // Applies the saved theme before the first paint, so dark mode never flashes white while the
+      // app loads; next-themes (ThemeProvider in main.tsx, same storage key) takes over from there
+      try {
+        var theme = localStorage.getItem('helpdesk-theme');
+        if (
+          theme === 'dark' ||
+          (theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
+        ) {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -3,7 +3,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useForm } from 'react-hook-form';
 import { Navigate, useLocation, useNavigate } from 'react-router';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { authClient, useActiveSession } from '@/lib/auth-client';
@@ -36,13 +35,24 @@ export function LoginPage() {
   const { isSubmitting, errors } = form.formState;
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>Sign in to Helpdesk</CardTitle>
-          <CardDescription>Enter your email and password.</CardDescription>
-        </CardHeader>
-        <CardContent>
+    // The masthead's navy runs down the left on wide screens and across the top on phones, so the
+    // sign-in page already looks like the app it opens
+    <div className="grid min-h-svh grid-rows-[auto_1fr] bg-background md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] md:grid-rows-1">
+      <aside className="flex flex-col justify-between gap-6 bg-masthead px-6 py-5 text-masthead-foreground md:px-10 md:py-10">
+        <p className="text-lg font-bold tracking-tight">Helpdesk</p>
+        <p className="hidden max-w-xs text-2xl leading-snug font-bold tracking-tight text-balance md:block">
+          Customer email, sorted and answered.
+        </p>
+        <p className="hidden text-sm text-masthead-muted md:block">
+          Accounts are created by your Admin.
+        </p>
+      </aside>
+      <main className="flex items-center px-6 py-10 md:px-16">
+        <div className="w-full max-w-sm space-y-6">
+          <div className="space-y-1.5">
+            <h1 className="text-2xl font-bold tracking-tight">Sign in to Helpdesk</h1>
+            <p className="text-sm text-muted-foreground">Enter your work email and password.</p>
+          </div>
           <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
             <FieldGroup>
               <Controller
@@ -90,8 +100,8 @@ export function LoginPage() {
               </Button>
             </FieldGroup>
           </form>
-        </CardContent>
-      </Card>
-    </main>
+        </div>
+      </main>
+    </div>
   );
 }

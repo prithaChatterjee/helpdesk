@@ -55,13 +55,13 @@ function mockPagedApi(total: number) {
     .mockImplementation((input) => Promise.resolve(pagedResponse(input, total)));
 }
 
-function renderPage() {
+function renderPage(state?: unknown) {
   // No retries, so error states show up right away
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      {/* Subjects link to the ticket's page */}
-      <MemoryRouter>
+      {/* Subjects link to the ticket's page; `state` is what a link to the list passed along */}
+      <MemoryRouter initialEntries={[{ pathname: '/tickets', state }]}>
         <TicketsPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -85,6 +85,18 @@ describe('TicketsPage', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Loading tickets…');
     expect(screen.getByRole('columnheader', { name: 'Subject' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: "Can't log in" })).not.toBeInTheDocument();
+  });
+
+  it('starts with the filters a link passed along, e.g. from the Home page', async () => {
+    const fetchSpy = mockFetch(Response.json(firstPage));
+    renderPage({ filters: { assignee: 'me', status: 'OPEN' } });
+
+    await screen.findByRole('link', { name: "Can't log in" });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/tickets?assignee=me&status=OPEN&page=1&pageSize=25',
+      expect.anything(),
+    );
+    expect(screen.getByRole('combobox', { name: 'Status' })).toHaveTextContent('Open');
   });
 
   it("requests the first page in the API's default order", async () => {

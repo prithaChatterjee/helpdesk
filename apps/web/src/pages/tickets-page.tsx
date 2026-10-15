@@ -10,6 +10,7 @@ import {
 } from '@helpdesk/shared';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
+import { useLocation } from 'react-router';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { TicketFiltersBar } from '@/components/tickets/ticket-filters';
 import { TicketsTable, TicketsTableSkeleton } from '@/components/tickets/tickets-table';
@@ -17,7 +18,11 @@ import { LoadError } from '@/components/common/load-error';
 import { apiGet } from '@/lib/api';
 
 export function TicketsPage() {
-  const [filters, setFilters] = useState<TicketFilters>({});
+  // Links can open the list already filtered, e.g. the Home page's "assigned to you"
+  const location = useLocation();
+  const [filters, setFilters] = useState<TicketFilters>(
+    () => (location.state as { filters?: TicketFilters } | null)?.filters ?? {},
+  );
   // No sort: the API's default order (most recent activity first)
   const [sort, setSort] = useState<Sort<TicketSortField>>();
   const [page, setPage] = useState<Page>(FIRST_PAGE);

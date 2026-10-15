@@ -1,13 +1,22 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
-@import '@fontsource-variable/geist';
+@import '@fontsource-variable/atkinson-hyperlegible-next';
 
 @custom-variant dark (&:is(.dark *));
 
+/* "Sorting office": the postal room where mail is sorted, filed and answered. Postal navy ink on
+   cool paper (deliberately not cream), white sheets for content, and one bold element: the navy
+   masthead whose nav links are folder tabs (see app-header.tsx). Everything else stays quiet:
+   borders instead of shadows, small radii. */
 @theme inline {
+  /* Atkinson Hyperlegible keeps 1/l/I and 0/O apart: Agents read addresses and emails all day */
   --font-heading: var(--font-sans);
-  --font-sans: 'Geist Variable', sans-serif;
+  --font-sans: 'Atkinson Hyperlegible Next Variable', ui-sans-serif, system-ui, sans-serif;
+  --color-masthead: var(--masthead);
+  --color-masthead-foreground: var(--masthead-foreground);
+  --color-masthead-muted: var(--masthead-muted);
+  --color-success: var(--success);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -48,25 +57,32 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* Light: paper #F4F7FB, sheet #FFFFFF, ink #16233F, pencil #5A6782 (5.3:1 on paper), delivered
+   #2C7A57, stamp red #B42E22 */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --background: #f4f7fb;
+  --foreground: #16233f;
+  --card: #ffffff;
+  --card-foreground: #16233f;
+  --popover: #ffffff;
+  --popover-foreground: #16233f;
+  --primary: #16233f;
+  --primary-foreground: #ffffff;
+  --secondary: #e8eef6;
+  --secondary-foreground: #16233f;
+  --muted: #eef2f8;
+  --muted-foreground: #5a6782;
+  --accent: #e8eef6;
+  --accent-foreground: #16233f;
+  --destructive: #b42e22;
+  --success: #2c7a57;
+  --border: #d9e1ec;
+  --input: #c9d3e2;
+  --ring: #4a6fb5;
+  /* The masthead: the one bold, dark band; its active tab takes --background */
+  --masthead: #16233f;
+  --masthead-foreground: #ffffff;
+  --masthead-muted: #c9d4ea;
   /* Categorical chart colors in a fixed order (blue, orange, aqua, yellow), validated for
      colorblind separation against the card surface; aqua and yellow are under 3:1 on white, so
      charts using them show labels or a table. Slot 5 is unused so far. */
@@ -74,51 +90,56 @@
   --chart-2: #eb6834;
   --chart-3: #1baf7a;
   --chart-4: #eda100;
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --chart-5: #5a6782;
+  --radius: 0.5rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #16233f;
+  --sidebar-primary: #16233f;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e8eef6;
+  --sidebar-accent-foreground: #16233f;
+  --sidebar-border: #d9e1ec;
+  --sidebar-ring: #4a6fb5;
 }
 
+/* Dark ("night shift"): the same navy deepened, not a tinted near-black */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  /* The same hues stepped for the dark card surface (all 3:1 or more) */
+  --background: #0e1626;
+  --foreground: #e4eaf5;
+  --card: #152036;
+  --card-foreground: #e4eaf5;
+  --popover: #1a2742;
+  --popover-foreground: #e4eaf5;
+  --primary: #a9c1f5;
+  --primary-foreground: #0e1626;
+  --secondary: #1f2c47;
+  --secondary-foreground: #e4eaf5;
+  --muted: #1b2740;
+  --muted-foreground: #93a0ba;
+  --accent: #22304d;
+  --accent-foreground: #e4eaf5;
+  --destructive: #f0776b;
+  --success: #5cc596;
+  --border: #253352;
+  --input: #2f3e60;
+  --ring: #7fa2e8;
+  --masthead: #091020;
+  --masthead-foreground: #e4eaf5;
+  --masthead-muted: #93a0ba;
+  /* The same hues stepped for the dark card surface (#152036; all 4:1 or more) */
   --chart-1: #3987e5;
   --chart-2: #d95926;
   --chart-3: #199e70;
   --chart-4: #c98500;
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --chart-5: #93a0ba;
+  --sidebar: #152036;
+  --sidebar-foreground: #e4eaf5;
+  --sidebar-primary: #a9c1f5;
+  --sidebar-primary-foreground: #0e1626;
+  --sidebar-accent: #22304d;
+  --sidebar-accent-foreground: #e4eaf5;
+  --sidebar-border: #253352;
+  --sidebar-ring: #7fa2e8;
 }
 
 @layer base {
@@ -157,5 +178,21 @@
   }
   input[type='search']::-webkit-search-cancel-button {
     -webkit-appearance: none;
+  }
+  /* Headings wrap into even lines instead of leaving one word behind */
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  /* Respect the system's reduced-motion setting for every transition and animation */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }

@@ -10,7 +10,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
     "@helpdesk/shared": "^0.0.0",
     "@hookform/resolvers": "^5.9.1",
     "@sentry/react": "^11.7.0",

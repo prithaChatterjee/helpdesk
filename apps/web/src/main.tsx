@@ -3,6 +3,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import { AppErrorBoundary } from '@/components/common/app-error-boundary';
+import { ThemeProvider } from '@/components/layout/theme-provider';
 import { Toaster } from '@/components/ui/sonner';
 import { initMonitoring, reportQueryError, reportReactError } from '@/lib/monitoring';
 import './index.css';
@@ -22,13 +23,15 @@ createRoot(document.getElementById('root')!, {
   onRecoverableError: reportReactError,
 }).render(
   <StrictMode>
-    <AppErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
-        <Toaster position="top-right" richColors />
-      </QueryClientProvider>
-    </AppErrorBoundary>
+    <ThemeProvider>
+      <AppErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
+          <Toaster position="top-right" richColors />
+        </QueryClientProvider>
+      </AppErrorBoundary>
+    </ThemeProvider>
   </StrictMode>,
 );
