@@ -1,20 +1,34 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
+import { AppErrorBoundary } from '@/components/common/app-error-boundary';
 import { Toaster } from '@/components/ui/sonner';
+import { initMonitoring, reportQueryError, reportReactError } from '@/lib/monitoring';
 import './index.css';
 import App from './App';
 
-const queryClient = new QueryClient();
+// First, so errors while starting up are reported too (sent once the SDK has loaded)
+void initMonitoring();
 
-createRoot(document.getElementById('root')!).render(
+const queryClient = new QueryClient({
+  queryCache: new QueryCache({ onError: reportQueryError }),
+  mutationCache: new MutationCache({ onError: reportQueryError }),
+});
+
+createRoot(document.getElementById('root')!, {
+  onCaughtError: reportReactError,
+  onUncaughtError: reportReactError,
+  onRecoverableError: reportReactError,
+}).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-      <Toaster position="top-right" richColors />
-    </QueryClientProvider>
+    <AppErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+        <Toaster position="top-right" richColors />
+      </QueryClientProvider>
+    </AppErrorBoundary>
   </StrictMode>,
 );

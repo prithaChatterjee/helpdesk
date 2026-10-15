@@ -18,6 +18,7 @@ import {
   type UpdateTicketResponse,
   updateTicketSchema,
 } from '@helpdesk/shared';
+import { reportError } from '@helpdesk/shared/monitoring';
 import { generateText, type LanguageModel } from 'ai';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -402,7 +403,7 @@ export function ticketsRouter(
       try {
         await enqueueSendEmail(message.id);
       } catch (err) {
-        console.error(`Couldn't queue sending message ${message.id}:`, err);
+        reportError(`Couldn't queue sending message ${message.id}:`, err, { feature: 'replies' });
         message = await prisma.message.update({
           where: { id: message.id },
           data: {
@@ -466,7 +467,7 @@ export function ticketsRouter(
       });
     } catch (err) {
       // The model provider failed or timed out; the Agent can try again or save their own draft
-      console.error(err);
+      reportError(`Couldn't polish a reply on ticket ${id}:`, err, { feature: 'polish' });
       res.status(502).json({ error: "Couldn't polish the reply. Try again." });
       return;
     }
@@ -513,7 +514,7 @@ export function ticketsRouter(
       summary = await ticketSummarizer(ticket);
     } catch (err) {
       // The model provider failed or timed out; the earlier summary (if any) stays
-      console.error(err);
+      reportError(`Couldn't summarize ticket ${id}:`, err, { feature: 'summary' });
       res.status(502).json({ error: "Couldn't summarize the ticket. Try again." });
       return;
     }

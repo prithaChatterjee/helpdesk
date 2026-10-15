@@ -15,6 +15,7 @@ import {
   type ResolveTicketJob,
   TicketStatus,
 } from '@helpdesk/shared';
+import { reportError } from '@helpdesk/shared/monitoring';
 import { generateText, type LanguageModel, Output } from 'ai';
 import { z } from 'zod';
 
@@ -157,7 +158,9 @@ export async function resolveTicket(
     try {
       await enqueueSendEmail(replyId);
     } catch (err) {
-      console.error(`[resolve-ticket] couldn't queue sending message ${replyId}:`, err);
+      reportError(`[resolve-ticket] couldn't queue sending message ${replyId}:`, err, {
+        queue: 'resolve-ticket',
+      });
       await prisma.message.update({
         where: { id: replyId },
         data: { deliveryStatus: DeliveryStatus.FAILED, deliveryError: "Couldn't queue the email" },

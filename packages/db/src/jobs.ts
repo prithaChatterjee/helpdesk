@@ -4,6 +4,7 @@ import {
   type ResolveTicketJob,
   type SendEmailJob,
 } from '@helpdesk/shared';
+import { reportError } from '@helpdesk/shared/monitoring';
 import { PgBoss, type QueueOptions } from 'pg-boss';
 
 export type { Job, JobWithMetadata } from 'pg-boss';
@@ -72,7 +73,7 @@ const SEND_EMAIL_RETRIES: QueueOptions = {
  */
 export async function startJobQueue(connectionString: string): Promise<JobQueueClient> {
   const boss = new PgBoss(connectionString);
-  boss.on('error', (err) => console.error('pg-boss error:', err));
+  boss.on('error', (err) => reportError('pg-boss error:', err, { component: 'pg-boss' }));
   await boss.start();
   await boss.createQueue(JOB_QUEUES.classifyTicket, AI_JOB_RETRIES);
   await boss.createQueue(JOB_QUEUES.resolveTicket, AI_JOB_RETRIES);

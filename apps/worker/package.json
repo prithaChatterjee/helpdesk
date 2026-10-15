@@ -13,6 +13,7 @@
     "@ai-sdk/google": "^4.0.95",
     "@helpdesk/db": "^0.0.0",
     "@helpdesk/shared": "^0.0.0",
+    "@sentry/node": "^11.7.0",
     "ai": "^7.0.140",
     "bullmq": "^6.3.11",
     "ioredis": "^6.0.0",

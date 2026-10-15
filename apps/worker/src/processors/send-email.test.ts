@@ -1,5 +1,6 @@
 import { createPrismaClient, type JobWithMetadata } from '@helpdesk/db';
 import type { SendEmailJob } from '@helpdesk/shared';
+import { captureError } from '@helpdesk/shared/monitoring';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createSendGridSender,
@@ -12,6 +13,8 @@ import {
   sendEmailJobs,
   sendMessageEmail,
 } from './send-email';
+
+vi.mock('@helpdesk/shared/monitoring', () => ({ captureError: vi.fn() }));
 
 // Prisma connects lazily, so stubbed queries need no running Postgres
 const prisma = createPrismaClient('postgresql://unused:unused@localhost:1/unused');
@@ -152,6 +155,7 @@ function stubMessage(message: unknown = pendingReply) {
 }
 
 afterEach(() => {
+  vi.mocked(captureError).mockClear();
   vi.restoreAllMocks();
 });
 
@@ -332,6 +336,22 @@ describe('sendEmailJobs', () => {
 
     expect(send).toHaveBeenCalledOnce();
     expect(logged).toHaveBeenCalledWith(`[send-email] message ${messageId}: sent`);
+    expect(captureError).not.toHaveBeenCalled();
+  });
+
+  it('reports a message SendGrid refused for good', async () => {
+    stubMessage();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const send = vi
+      .fn<EmailSender>()
+      .mockRejectedValue(new EmailSendError('SendGrid returned 403: unverified sender', true));
+
+    await sendEmailJobs(prisma, send, options)([job()]);
+
+    expect(captureError).toHaveBeenCalledExactlyOnceWith(
+      new Error(`SendGrid refused message ${messageId}: SendGrid returned 403: unverified sender`),
+      { queue: 'send-email' },
+    );
   });
 
   it('rethrows a temporary failure without giving up before the last attempt', async () => {

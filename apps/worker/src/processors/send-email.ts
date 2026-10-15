@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { JobWithMetadata, PrismaClient } from '@helpdesk/db';
 import { DeliveryStatus, MessageDirection, type SendEmailJob } from '@helpdesk/shared';
+import { captureError } from '@helpdesk/shared/monitoring';
 
 export const SENDGRID_SEND_URL = 'https://api.sendgrid.com/v3/mail/send';
 const SEND_TIMEOUT_MS = 30_000;
@@ -223,6 +224,13 @@ export function sendEmailJobs(
       }
       const reason = 'reason' in outcome ? ` (${outcome.reason})` : '';
       console.log(`[send-email] message ${messageId}: ${outcome.result}${reason}`);
+      // Refused for good (e.g. unverified sender, invalid API key): no retry will throw, so report it
+      // here; it often means every reply is failing until the setup is fixed
+      if (outcome.result === 'failed') {
+        captureError(new Error(`SendGrid refused message ${messageId}: ${outcome.reason}`), {
+          queue: 'send-email',
+        });
+      }
     }
   };
 }

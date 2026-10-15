@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@helpdesk/db';
+import { reportError } from '@helpdesk/shared/monitoring';
 import { toNodeHandler } from 'better-auth/node';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import type { Auth } from './auth';
@@ -70,13 +71,13 @@ export function createApp(auth: Auth, prisma: PrismaClient, config: AppConfig) {
   // Client errors from body parsing (400 bad JSON, 413 too large) keep their status and message.
   // Express recognises error handlers by their four parameters, so `_next` must stay.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
     const status = getClientErrorStatus(err);
     if (status) {
       res.status(status).json({ error: (err as Error).message });
       return;
     }
-    console.error(err);
+    reportError(`Unhandled error in ${req.method} ${req.path}:`, err);
     res.status(500).json({ error: 'Internal Server Error' });
   });
 

@@ -26,6 +26,10 @@ const envSchema = z
     // Queue a send-email job for each Agent reply (the worker emails it with SendGrid). Off: replies
     // are only saved to the thread, so test tickets with made-up addresses are never emailed.
     EMAIL_SENDING_ENABLED: z.stringbool().default(false),
+    // Sentry project DSN for error reports; unset, errors are only logged
+    SENTRY_DSN: z.url().optional(),
+    // Sentry environment name; defaults to NODE_ENV
+    SENTRY_ENVIRONMENT: z.string().min(1).optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;

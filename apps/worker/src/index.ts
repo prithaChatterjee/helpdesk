@@ -1,12 +1,7 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { sendSendEmailJob, startJobQueue } from '@helpdesk/db';
-import {
-  CLASSIFY_MODEL,
-  type ClassifyTicketJob,
-  JOB_QUEUES,
-  QUEUE_NAMES,
-  RESOLVE_MODEL,
-} from '@helpdesk/shared';
+import { CLASSIFY_MODEL, JOB_QUEUES, QUEUE_NAMES, RESOLVE_MODEL } from '@helpdesk/shared';
+import { flushMonitoring, initMonitoring, reportError } from '@helpdesk/shared/monitoring';
 import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { prisma } from './db';
@@ -16,6 +11,14 @@ import { processMaintenanceJob } from './processors/maintenance';
 import { createTicketResolver, resolveTicketJobs } from './processors/resolve-ticket';
 import { createSendGridSender, sendEmailJobs } from './processors/send-email';
 import { createPacer } from './pacer';
+import { reportFinalFailures } from './report-job-failures';
+
+// First, so errors during startup are reported too
+initMonitoring({
+  dsn: env.SENTRY_DSN,
+  environment: env.SENTRY_ENVIRONMENT ?? env.NODE_ENV,
+  service: 'worker',
+});
 
 // BullMQ workers require maxRetriesPerRequest: null on their Redis connection
 const connection = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
@@ -24,10 +27,13 @@ const workers = [new Worker(QUEUE_NAMES.maintenance, processMaintenanceJob, { co
 
 for (const worker of workers) {
   worker.on('failed', (job, err) => {
-    console.error(`[${worker.name}] job ${job?.id} (${job?.name}) failed:`, err.message);
+    reportError(`[${worker.name}] job ${job?.id} (${job?.name}) failed:`, err, {
+      queue: worker.name,
+    });
   });
   worker.on('error', (err) => {
-    // Connection errors (e.g. ECONNREFUSED) can have an empty message, so fall back to the code
+    // Connection errors (e.g. ECONNREFUSED) can have an empty message, so fall back to the code.
+    // Only logged: they repeat every few seconds while Redis is down (normal in development).
     const code = (err as NodeJS.ErrnoException).code;
     console.error(`[${worker.name}] worker error:`, err.message || code || err);
   });
@@ -48,10 +54,13 @@ if (env.EMAIL_SENDING_ENABLED && env.SENDGRID_API_KEY) {
     JOB_QUEUES.sendEmail,
     // Metadata (retryCount/retryLimit) tells the handler when a failure is the last attempt
     { includeMetadata: true },
-    sendEmailJobs(prisma, createSendGridSender(env.SENDGRID_API_KEY), {
-      supportEmail: env.SUPPORT_EMAIL,
-      replyTo: env.EMAIL_REPLY_TO,
-    }),
+    reportFinalFailures(
+      JOB_QUEUES.sendEmail,
+      sendEmailJobs(prisma, createSendGridSender(env.SENDGRID_API_KEY), {
+        supportEmail: env.SUPPORT_EMAIL,
+        replyTo: env.EMAIL_REPLY_TO,
+      }),
+    ),
   );
   console.log(
     `Worker listening on job queue: ${JOB_QUEUES.sendEmail} (SendGrid, from ${env.SUPPORT_EMAIL})`,
@@ -67,20 +76,28 @@ if (env.GOOGLE_GENERATIVE_AI_API_KEY) {
   const classifier = createTicketClassifier(google(CLASSIFY_MODEL));
   const resolver = createTicketResolver(google(RESOLVE_MODEL));
 
-  await jobs.work<ClassifyTicketJob>(
+  await jobs.work(
     JOB_QUEUES.classifyTicket,
-    classifyTicketJobs(prisma, (input) => pace(() => classifier(input))),
+    // Metadata (retryCount/retryLimit) tells reportFinalFailures when a failure is the last attempt
+    { includeMetadata: true },
+    reportFinalFailures(
+      JOB_QUEUES.classifyTicket,
+      classifyTicketJobs(prisma, (input) => pace(() => classifier(input))),
+    ),
   );
   await jobs.work(
     JOB_QUEUES.resolveTicket,
     // Metadata (retryCount/retryLimit) tells the handler when a failure is the last attempt
     { includeMetadata: true },
-    resolveTicketJobs(prisma, (input) => pace(() => resolver(input)), {
-      supportEmail: env.SUPPORT_EMAIL,
-      // apps/worker/knowledge-base.md, from src/index.ts and from the bundled dist/index.mjs
-      knowledgeBaseUrl: new URL('../knowledge-base.md', import.meta.url),
-      enqueueSendEmail,
-    }),
+    reportFinalFailures(
+      JOB_QUEUES.resolveTicket,
+      resolveTicketJobs(prisma, (input) => pace(() => resolver(input)), {
+        supportEmail: env.SUPPORT_EMAIL,
+        // apps/worker/knowledge-base.md, from src/index.ts and from the bundled dist/index.mjs
+        knowledgeBaseUrl: new URL('../knowledge-base.md', import.meta.url),
+        enqueueSendEmail,
+      }),
+    ),
   );
   console.log(
     `Worker listening on job queues: ${JOB_QUEUES.classifyTicket}, ${JOB_QUEUES.resolveTicket} ` +
@@ -99,6 +116,7 @@ async function shutdown(signal: string) {
   await Promise.all(workers.map((w) => w.close()));
   await connection.quit();
   await prisma.$disconnect();
+  await flushMonitoring();
   process.exit(0);
 }
 

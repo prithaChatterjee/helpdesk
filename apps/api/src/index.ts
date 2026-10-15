@@ -6,12 +6,20 @@ import {
   startJobQueue,
 } from '@helpdesk/db';
 import { AI_MODEL } from '@helpdesk/shared';
+import { flushMonitoring, initMonitoring } from '@helpdesk/shared/monitoring';
 import { createApp } from './app';
 import { createAuth } from './auth';
 import { prisma } from './db';
 import { env } from './env';
 import { createReplyPolisher, createTicketSummarizer } from './routes/tickets';
 import { seedAdmin } from './seed-admin';
+
+// First, so errors during startup are reported too
+initMonitoring({
+  dsn: env.SENTRY_DSN,
+  environment: env.SENTRY_ENVIRONMENT ?? env.NODE_ENV,
+  service: 'api',
+});
 
 const auth = createAuth(
   {
@@ -63,6 +71,7 @@ function shutdown(signal: string) {
     void jobs
       .stop({ graceful: true })
       .then(() => prisma.$disconnect())
+      .then(() => flushMonitoring())
       .finally(() => process.exit(0));
   });
 }

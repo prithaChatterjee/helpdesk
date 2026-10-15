@@ -7,6 +7,7 @@ export * from './inbound-email';
 export * from './pagination';
 export * from './queues';
 export * from './reply';
+export * from './sentry-privacy';
 export * from './sorting';
 export * from './tickets';
 export * from './users';

@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { findAiAgentId, type PrismaClient, unassignFromAiAgent } from '@helpdesk/db';
 import { inboundEmailSchema } from '@helpdesk/shared';
+import { reportError } from '@helpdesk/shared/monitoring';
 import express, { type RequestHandler, type Response, Router } from 'express';
 import { ingestInboundEmail } from '../inbound-email/ingest';
 import { readSendGridFields, sendGridToInboundEmail } from '../inbound-email/sendgrid';
@@ -78,7 +79,9 @@ async function receiveEmail(
     try {
       await enqueueNewTicketJobs(result.ticketId);
     } catch (err) {
-      console.error(`Couldn't queue AI jobs for ticket ${result.ticketId}:`, err);
+      reportError(`Couldn't queue AI jobs for ticket ${result.ticketId}:`, err, {
+        feature: 'inbound-email',
+      });
       // No job will ever unassign it, so hand it straight to the Agents
       if (aiAgentId) await unassignFromAiAgent(prisma, result.ticketId, aiAgentId);
     }

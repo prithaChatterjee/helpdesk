@@ -24,6 +24,10 @@ const envSchema = z
     // Reply-To of emailed replies, e.g. the SendGrid Inbound Parse address; unset, customers reply to
     // SUPPORT_EMAIL
     EMAIL_REPLY_TO: z.email().optional(),
+    // Sentry project DSN for error reports; unset, errors are only logged
+    SENTRY_DSN: z.url().optional(),
+    // Sentry environment name; defaults to NODE_ENV
+    SENTRY_ENVIRONMENT: z.string().min(1).optional(),
   })
   .superRefine((env, ctx) => {
     if (!env.EMAIL_SENDING_ENABLED) return;

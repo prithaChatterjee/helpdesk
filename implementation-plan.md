@@ -191,7 +191,7 @@ Goal: the system is safe to run in production.
 
 - [ ] 9.1 Scheduled jobs: delete expired sessions daily; auto-close tickets Resolved for N days
 - [ ] 9.2 Structured logging (pino) with request IDs; no email bodies or passwords in logs
-- [ ] 9.3 Error tracking (e.g. Sentry) for api, worker, and web
+- [x] 9.3 Error tracking (Sentry) for api, worker, and web — errors only, no tracing; source map upload for the web build still to do
 - [ ] 9.4 Security headers (helmet), CORS config, request size limits for webhook
 - [ ] 9.5 Playwright end-to-end tests: login, create Agent, receive email, reply, dashboard
 - [ ] 9.6 Load test ingestion at expected peak volume (e.g. thousands of emails/hour)
