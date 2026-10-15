@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { PrismaClient } from '@helpdesk/db';
 import { reportError } from '@helpdesk/shared/monitoring';
 import { toNodeHandler } from 'better-auth/node';
@@ -30,6 +31,11 @@ export interface AppConfig {
    * are only saved to the thread
    */
   enqueueSendEmail?: EnqueueSendEmail;
+  /**
+   * Absolute path of the built web app (`apps/web/dist`) to serve next to `/api`, so the app and the
+   * API share one origin in production (session cookies, no CORS); unset, only `/api` is served
+   */
+  webDistDir?: string;
 }
 
 export function createApp(auth: Auth, prisma: PrismaClient, config: AppConfig) {
@@ -67,6 +73,8 @@ export function createApp(auth: Auth, prisma: PrismaClient, config: AppConfig) {
   app.use('/api/assignees', requireAuth(auth), assigneesRouter(prisma));
   app.use('/api/dashboard', requireAuth(auth), dashboardRouter(prisma));
 
+  if (config.webDistDir) serveWebApp(app, config.webDistDir);
+
   // Replaces Express's default handler, which sends stack traces unless NODE_ENV is production.
   // Client errors from body parsing (400 bad JSON, 413 too large) keep their status and message.
   // Express recognises error handlers by their four parameters, so `_next` must stay.
@@ -82,6 +90,33 @@ export function createApp(auth: Auth, prisma: PrismaClient, config: AppConfig) {
   });
 
   return app;
+}
+
+/**
+ * Serves the built web app: hashed `/assets` cached for a year; every other GET outside `/api` and
+ * `/assets` falls back to `index.html` (never cached, so a deploy is picked up) for client-side
+ * routes like `/tickets/:id`.
+ */
+function serveWebApp(app: express.Express, webDistDir: string) {
+  app.use(
+    '/assets',
+    express.static(path.join(webDistDir, 'assets'), {
+      immutable: true,
+      maxAge: '1y',
+    }),
+  );
+  app.use(express.static(webDistDir, { index: false }));
+  app.use((req, res, next) => {
+    // A missing /assets file (e.g. an old chunk after a deploy) gets a 404, not index.html
+    const isNotPage = /^\/(api|assets)(\/|$)/.test(req.path);
+    if ((req.method !== 'GET' && req.method !== 'HEAD') || isNotPage) {
+      next();
+      return;
+    }
+    res.sendFile(path.join(webDistDir, 'index.html'), {
+      headers: { 'Cache-Control': 'no-cache' },
+    });
+  });
 }
 
 /** The 4xx status of an error that is safe to show to the client, e.g. from express.json(). */

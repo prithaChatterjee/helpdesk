@@ -11,6 +11,7 @@
     "db:seed": "tsx --env-file-if-exists=../../.env src/seed.ts",
     "db:seed:ai-agent": "tsx --env-file-if-exists=../../.env src/seed-ai-agent.ts",
     "seed": "node dist/seed.mjs",
+    "seed:ai-agent": "node dist/seed-ai-agent.mjs",
     "tickets:classify": "tsx --env-file-if-exists=../../.env src/classify-tickets.ts",
     "tickets:auto-resolve": "tsx --env-file-if-exists=../../.env src/auto-resolve-tickets.ts"
   },

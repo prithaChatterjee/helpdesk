@@ -21,9 +21,13 @@ initMonitoring({
 });
 
 // BullMQ workers require maxRetriesPerRequest: null on their Redis connection
-const connection = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
+const connection = env.REDIS_URL
+  ? new Redis(env.REDIS_URL, { maxRetriesPerRequest: null })
+  : undefined;
 
-const workers = [new Worker(QUEUE_NAMES.maintenance, processMaintenanceJob, { connection })];
+const workers = connection
+  ? [new Worker(QUEUE_NAMES.maintenance, processMaintenanceJob, { connection })]
+  : [];
 
 for (const worker of workers) {
   worker.on('failed', (job, err) => {
@@ -39,7 +43,11 @@ for (const worker of workers) {
   });
 }
 
-console.log(`Worker started, listening on queues: ${workers.map((w) => w.name).join(', ')}`);
+if (connection) {
+  console.log(`Worker started, listening on queues: ${workers.map((w) => w.name).join(', ')}`);
+} else {
+  console.warn('REDIS_URL is not set: BullMQ queues are off (pg-boss jobs still run)');
+}
 
 // pg-boss queues live in PostgreSQL, so they run even without Redis
 const jobs = await startJobQueue(env.DATABASE_URL);
@@ -114,7 +122,7 @@ async function shutdown(signal: string) {
   // Graceful: running jobs finish first
   await jobs.stop({ graceful: true });
   await Promise.all(workers.map((w) => w.close()));
-  await connection.quit();
+  await connection?.quit();
   await prisma.$disconnect();
   await flushMonitoring();
   process.exit(0);

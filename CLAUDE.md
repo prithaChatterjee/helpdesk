@@ -22,7 +22,7 @@ npm workspaces monorepo, TypeScript everywhere, ESM (`"type": "module"`).
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `apps/web`        | React 19 + Vite + Tailwind 4 + shadcn/ui (radix-nova) + React Router 8. `@/` alias → `src/`; pages in `src/pages/`                                                              |
 | `apps/api`        | Express 5 REST API. All routes under `/api/*`. `createApp(auth, prisma, config)` in `app.ts` is separate from `index.ts` (listen) for supertest; route modules in `src/routes/` |
-| `apps/worker`     | BullMQ (Redis) and pg-boss (PostgreSQL) consumers; processors in `src/processors/`                                                                                              |
+| `apps/worker`     | pg-boss (PostgreSQL) and optional BullMQ (Redis, only when `REDIS_URL` is set) consumers; processors in `src/processors/`                                                       |
 | `packages/shared` | Zod schemas (form schemas like `signInSchema`, API response types like `UserListResponse`), enums (roles, ticket statuses, categories), queue names                             |
 | `packages/db`     | Prisma 7 schema, migrations, generated client (`src/generated/`, gitignored), `createPrismaClient()`. Node-only                                                                 |
 | `e2e`             | Playwright end-to-end tests (`tests/`). Own database `helpdesk_test` and ports (API :3001, web :5174), settings and seeded `TEST_USERS` in `test-env.ts`                        |
@@ -185,6 +185,14 @@ Hand e2e work to the `e2e-tester` subagent (`.claude/agents/e2e-tester.md`) inst
 - Add shadcn components with `npx shadcn@latest add <name>` from `apps/web`; don't hand-write them. Utilities come from the `cn` package (shadcn's).
 - Global styles go in `@layer base` in `apps/web/src/index.css`. Tailwind's preflight already resets most browser defaults; `index.css` also covers autofill, `color-scheme`, number spinners and the search clear button. Base-layer rules lose to utility classes on components (e.g. the shadcn `Input`'s `transition-colors`), so a global override of a property a component sets needs `!important`.
 - Prettier: single quotes, print width 100.
+
+## Deployment (Railway)
+
+- One image (`Dockerfile`: `npm ci` → `npm run build` → `npm prune --omit=dev`, runtime `NODE_ENV=production`, user `node`) for two Railway services, configured by `railway/api.json` (pre-deploy `npm run db:deploy`, health check `/api/health`) and `railway/worker.json`; each service's "Config file path" points at its file. Steps and variables are in README "Deploying to Railway".
+- The api serves `apps/web/dist` in production (`createApp` `webDistDir`, set in `index.ts` when `NODE_ENV=production` and the build exists): `/assets` cached immutable, other non-`/api` GETs fall back to `index.html` (`no-cache`), missing `/api`/`/assets` paths 404. So `BETTER_AUTH_URL` and `WEB_ORIGIN` are the same https origin; keep it one origin (no CORS).
+- The api listens on `API_PORT`, else `PORT` (Railway), else 3000. `REDIS_URL` is optional (worker only; BullMQ has no producers yet), so production needs only PostgreSQL.
+- The `prisma` CLI is a **dependency** of `@helpdesk/db` (not dev) because `migrate deploy` runs in the pruned image. `VITE_SENTRY_DSN`/`VITE_SENTRY_ENVIRONMENT` are Docker build args (Railway passes service variables of the same name); don't set `NODE_ENV` in the build stage or `npm ci` skips the build tools.
+- `seed-ai-agent.ts` is built too (`npm run seed:ai-agent -w @helpdesk/api` in the container). Not done yet: helmet/CSP (plan 9.4) and trusted-proxy config for rate limiting (plan 1.9; Railway sets `X-Forwarded-For`).
 
 ## Product decisions (see project-scope.md)
 

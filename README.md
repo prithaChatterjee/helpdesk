@@ -8,7 +8,7 @@ AI-assisted support ticket system. See `project-scope.md`, `tech-stack.md` and `
 | ----------------- | ---------------------------------------------------------- |
 | `apps/web`        | React + Vite + Tailwind + shadcn/ui frontend               |
 | `apps/api`        | Express REST API (`/api/*`)                                |
-| `apps/worker`     | BullMQ background job consumers                            |
+| `apps/worker`     | pg-boss (and BullMQ) background job consumers              |
 | `packages/shared` | Shared Zod schemas, enums, queue names (TypeScript source) |
 | `packages/db`     | Prisma schema, migrations and client (Node-only)           |
 
@@ -39,6 +39,52 @@ Open http://localhost:5173. In development, Vite proxies `/api` to the API so th
 | `npm run lint`      | ESLint                                  |
 | `npm run typecheck` | TypeScript in every workspace           |
 | `npm run format`    | Prettier                                |
+
+## Deploying to Railway
+
+One Docker image (`Dockerfile`) runs as two Railway services. The api also serves the built web app,
+so the browser, `/api` and the session cookie share one origin (no CORS).
+
+| Service    | Config file            | Does                                                                             |
+| ---------- | ---------------------- | -------------------------------------------------------------------------------- |
+| `api`      | `/railway/api.json`    | Runs migrations (pre-deploy), then the API + web app; health check `/api/health` |
+| `worker`   | `/railway/worker.json` | pg-boss jobs: AI classification/auto-resolve, sending email                      |
+| PostgreSQL | Railway database       | Tickets, sessions and the pg-boss job queue                                      |
+
+Redis is optional: nothing is queued on BullMQ yet, so skip it until a feature needs it.
+
+1. Create a project, add **PostgreSQL**, then two services from this GitHub repo (`api`, `worker`).
+2. In each service's **Settings**: leave Root Directory empty (the image needs the whole repo) and
+   set **Config file path** to `/railway/api.json` or `/railway/worker.json`.
+3. On `api`, **Networking → Generate Domain** (Railway terminates TLS; the API listens on `PORT`).
+4. Variables. Generate secrets with `node -e "console.log(crypto.randomBytes(32).toString('base64'))"`.
+
+   **api**
+
+   | Variable                                     | Value                                                                                                         |
+   | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+   | `DATABASE_URL`                               | `${{Postgres.DATABASE_URL}}`                                                                                  |
+   | `BETTER_AUTH_URL`, `WEB_ORIGIN`              | `https://${{RAILWAY_PUBLIC_DOMAIN}}` (both the same: one origin)                                              |
+   | `BETTER_AUTH_SECRET`, `INBOUND_EMAIL_SECRET` | two new random secrets                                                                                        |
+   | `ADMIN_EMAIL`, `ADMIN_PASSWORD`              | the first Admin, created on first start when there are no users                                               |
+   | optional                                     | `GOOGLE_GENERATIVE_AI_API_KEY`, `EMAIL_SENDING_ENABLED`, `SENTRY_DSN`, `VITE_SENTRY_DSN` (read at build time) |
+
+   **worker**
+
+   | Variable       | Value                                                                                                                                                    |
+   | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}`                                                                                                                             |
+   | optional       | `GOOGLE_GENERATIVE_AI_API_KEY`, `AI_REQUESTS_PER_MINUTE`, `EMAIL_SENDING_ENABLED` + `SENDGRID_API_KEY` + `SUPPORT_EMAIL`, `EMAIL_REPLY_TO`, `SENTRY_DSN` |
+
+   The image sets `NODE_ENV=production`, which turns on sign-in rate limiting and rejects the
+   `.env.example` secrets and non-https URLs.
+
+5. Deploy. The api's pre-deploy step runs `prisma migrate deploy`; on first start it creates the Admin.
+6. For auto-resolve, create the AI Agent once: `railway ssh -s api` then
+   `npm run seed:ai-agent -w @helpdesk/api`.
+7. SendGrid Inbound Parse: `https://<api domain>/api/webhooks/sendgrid/inbound?token=<INBOUND_EMAIL_SECRET>`.
+
+Check the image locally with `docker build -t helpdesk .`.
 
 ## Notes
 

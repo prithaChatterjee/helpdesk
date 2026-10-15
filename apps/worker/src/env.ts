@@ -6,7 +6,8 @@ const DEFAULT_SUPPORT_EMAIL = 'support@helpdesk.example';
 const envSchema = z
   .object({
     NODE_ENV: nodeEnvSchema,
-    REDIS_URL: z.url(),
+    // BullMQ (maintenance queue, nothing is queued on it yet); unset, BullMQ isn't started
+    REDIS_URL: z.url().optional(),
     // The tickets database, which also holds the pg-boss job queue
     DATABASE_URL: z.url(),
     // Gemini API key (Google AI Studio) for classifying and auto-resolving tickets; without it those

@@ -9,10 +9,11 @@ const EXAMPLE_INBOUND_EMAIL_SECRET = 'replace-with-another-32-plus-random-charac
 const envSchema = z
   .object({
     NODE_ENV: nodeEnvSchema,
-    API_PORT: z.coerce.number().int().positive().default(3000),
+    API_PORT: z.coerce.number().int().positive().optional(),
+    // Set by hosts like Railway; used when API_PORT isn't
+    PORT: z.coerce.number().int().positive().optional(),
     WEB_ORIGIN: z.url(),
     DATABASE_URL: z.url(),
-    REDIS_URL: z.url(),
     ADMIN_EMAIL: z.email(),
     // Better Auth's default minimum password length
     ADMIN_PASSWORD: z.string().min(8),
@@ -64,7 +65,8 @@ const envSchema = z
         });
       }
     }
-  });
+  })
+  .transform(({ PORT, ...env }) => ({ ...env, API_PORT: env.API_PORT ?? PORT ?? 3000 }));
 
 export type Env = z.infer<typeof envSchema>;
 

@@ -14,14 +14,14 @@
     "typecheck": "tsc"
   },
   "devDependencies": {
-    "@types/pg": "^8.23.1",
-    "prisma": "^7.10.0"
+    "@types/pg": "^8.23.1"
   },
   "dependencies": {
     "@helpdesk/shared": "^0.0.0",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "pg": "^8.23.1",
-    "pg-boss": "^12.38.0"
+    "pg-boss": "^12.38.0",
+    "prisma": "^7.10.0"
   }
 }

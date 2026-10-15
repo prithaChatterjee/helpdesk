@@ -1,7 +1,10 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { createPrismaClient, Prisma } from '@helpdesk/db';
 import type { UserRole } from '@helpdesk/shared';
 import request from 'supertest';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReplyPolisher, TicketSummarizer } from './routes/tickets';
 import { createApp } from './app';
 import { type AuthSession, createAuth } from './auth';
@@ -58,6 +61,74 @@ describe('GET /api/health', () => {
     const res = await request(app).get('/api/health');
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ status: 'ok' });
+  });
+});
+
+describe('serving the web app', () => {
+  // A minimal built web app: index.html plus one hashed asset
+  const webDistDir = mkdtempSync(path.join(tmpdir(), 'helpdesk-web-'));
+  mkdirSync(path.join(webDistDir, 'assets'));
+  writeFileSync(path.join(webDistDir, 'index.html'), '<!doctype html><title>Helpdesk</title>');
+  writeFileSync(path.join(webDistDir, 'assets', 'index-abc123.js'), 'console.log(1)');
+  writeFileSync(path.join(webDistDir, 'favicon.svg'), '<svg/>');
+  const webApp = createApp(auth, prisma, { inboundEmailSecret: INBOUND_EMAIL_SECRET, webDistDir });
+
+  afterAll(() => {
+    rmSync(webDistDir, { recursive: true, force: true });
+  });
+
+  it('serves index.html at / without caching it', async () => {
+    const res = await request(webApp).get('/');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.headers['cache-control']).toBe('no-cache');
+    expect(res.text).toContain('<title>Helpdesk</title>');
+  });
+
+  it('serves index.html for client-side routes', async () => {
+    const res = await request(webApp).get('/tickets/0199a000-0000-7000-8000-000000000001');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('<title>Helpdesk</title>');
+  });
+
+  it('serves hashed assets with a long immutable cache', async () => {
+    const res = await request(webApp).get('/assets/index-abc123.js');
+    expect(res.status).toBe(200);
+    expect(res.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+    expect(res.text).toBe('console.log(1)');
+  });
+
+  it('serves other files from the build directory', async () => {
+    const res = await request(webApp).get('/favicon.svg');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^image\/svg\+xml/);
+  });
+
+  it('returns 404 for a missing asset instead of index.html', async () => {
+    const res = await request(webApp).get('/assets/missing.js');
+    expect(res.status).toBe(404);
+    expect(res.text).not.toContain('<title>Helpdesk</title>');
+  });
+
+  it('still routes /api requests to the API', async () => {
+    const res = await request(webApp).get('/api/health');
+    expect(res.body).toEqual({ status: 'ok' });
+  });
+
+  it('does not serve index.html for unknown /api paths', async () => {
+    const res = await request(webApp).get('/api/nope');
+    expect(res.status).toBe(404);
+    expect(res.text).not.toContain('<title>Helpdesk</title>');
+  });
+
+  it('does not serve index.html for non-GET requests', async () => {
+    const res = await request(webApp).post('/tickets');
+    expect(res.status).toBe(404);
+  });
+
+  it('serves no web app without webDistDir', async () => {
+    const res = await request(app).get('/');
+    expect(res.status).toBe(404);
   });
 });
 

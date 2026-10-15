@@ -195,7 +195,7 @@ Goal: the system is safe to run in production.
 - [ ] 9.4 Security headers (helmet), CORS config, request size limits for webhook
 - [ ] 9.5 Playwright end-to-end tests: login, create Agent, receive email, reply, dashboard
 - [ ] 9.6 Load test ingestion at expected peak volume (e.g. thousands of emails/hour)
-- [ ] 9.7 Production Dockerfiles for web, api, worker
+- [x] 9.7 Production Dockerfiles for web, api, worker — one `Dockerfile` image; the api serves the web build, `railway/*.json` pick each service's start command
 - [ ] 9.8 Provision managed PostgreSQL and Redis; automated database backups
 - [ ] 9.9 Deploy to hosting provider; run migrations in the release step
 - [ ] 9.10 Configure production Postmark inbound address and DNS

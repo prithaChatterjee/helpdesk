@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import {
   sendClassifyTicketJob,
@@ -49,6 +51,13 @@ const ai = model && {
 // pg-boss job queue in PostgreSQL; the worker classifies the tickets
 const jobs = await startJobQueue(env.DATABASE_URL);
 
+// In production the API also serves the built web app (one origin for the session cookie). In
+// development Vite serves it on :5173 instead. Resolves from src/index.ts and dist/index.mjs alike.
+const webDistDir = fileURLToPath(new URL('../../web/dist', import.meta.url));
+const serveWeb = env.NODE_ENV === 'production' && existsSync(webDistDir);
+if (env.NODE_ENV === 'production' && !serveWeb)
+  console.warn(`${webDistDir} not found: serving the API only (run npm run build first)`);
+
 const server = createApp(auth, prisma, {
   inboundEmailSecret: env.INBOUND_EMAIL_SECRET,
   ai,
@@ -61,6 +70,7 @@ const server = createApp(auth, prisma, {
   enqueueSendEmail: env.EMAIL_SENDING_ENABLED
     ? (messageId) => sendSendEmailJob(jobs, messageId)
     : undefined,
+  webDistDir: serveWeb ? webDistDir : undefined,
 }).listen(env.API_PORT, () => {
   console.log(`API listening on http://localhost:${env.API_PORT}`);
 });
